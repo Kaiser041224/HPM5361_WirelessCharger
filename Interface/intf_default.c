@@ -1,18 +1,9 @@
-/*
- * Interface Layer - Default Implementation (Stub)
- *
- * Copyright (c) 2024 HPMicro
- * SPDX-License-Identifier: BSD-3-Clause
- *
- * This file provides default stub implementations for interface APIs.
- * When a driver registers, it replaces these stubs.
- */
-
 #include "intf_pwm.h"
 #include "intf_adc.h"
 #include "intf_uart.h"
 #include "intf_spi.h"
 #include "intf_i2c.h"
+#include "intf_gpio.h"
 
 #include <stddef.h>
 
@@ -24,6 +15,7 @@ static const intf_pwm_ops_t *pwm_ops = NULL;
 
 int intf_pwm_register(const intf_pwm_ops_t *ops)
 {
+    if (ops == NULL) return -1;
     pwm_ops = ops;
     return 0;
 }
@@ -40,6 +32,12 @@ int intf_pwm_set_duty(intf_pwm_ch_t ch, uint8_t duty_percent)
     return -1;
 }
 
+int intf_pwm_set_frequency(intf_pwm_ch_t ch, uint32_t freq_hz)
+{
+    if (pwm_ops && pwm_ops->set_frequency) return pwm_ops->set_frequency(ch, freq_hz);
+    return -1;
+}
+
 int intf_pwm_start(intf_pwm_ch_t ch)
 {
     if (pwm_ops && pwm_ops->start) return pwm_ops->start(ch);
@@ -53,6 +51,49 @@ int intf_pwm_stop(intf_pwm_ch_t ch)
 }
 
 /* ============================================================================
+ * ADC Interface
+ * ============================================================================ */
+
+static const intf_adc_ops_t *adc_ops = NULL;
+
+int intf_adc_register(const intf_adc_ops_t *ops)
+{
+    if (ops == NULL) return -1;
+    adc_ops = ops;
+    return 0;
+}
+
+int intf_adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
+{
+    if (adc_ops && adc_ops->init) return adc_ops->init(ch, cfg);
+    return -1;
+}
+
+int intf_adc_read(intf_adc_ch_t ch, uint16_t *value)
+{
+    if (adc_ops && adc_ops->read) return adc_ops->read(ch, value);
+    return -1;
+}
+
+int intf_adc_read_voltage(intf_adc_ch_t ch, float *voltage_mv)
+{
+    if (adc_ops && adc_ops->read_voltage) return adc_ops->read_voltage(ch, voltage_mv);
+    return -1;
+}
+
+int intf_adc_start(intf_adc_ch_t ch)
+{
+    if (adc_ops && adc_ops->start) return adc_ops->start(ch);
+    return -1;
+}
+
+int intf_adc_stop(intf_adc_ch_t ch)
+{
+    if (adc_ops && adc_ops->stop) return adc_ops->stop(ch);
+    return -1;
+}
+
+/* ============================================================================
  * UART Interface
  * ============================================================================ */
 
@@ -60,6 +101,7 @@ static const intf_uart_ops_t *uart_ops = NULL;
 
 int intf_uart_register(const intf_uart_ops_t *ops)
 {
+    if (ops == NULL) return -1;
     uart_ops = ops;
     return 0;
 }
@@ -85,5 +127,122 @@ int intf_uart_receive(intf_uart_port_t port, uint8_t *data, size_t len, uint32_t
 int intf_uart_register_rx_callback(intf_uart_port_t port, intf_uart_rx_cb_t cb)
 {
     if (uart_ops && uart_ops->register_rx_callback) return uart_ops->register_rx_callback(port, cb);
+    return -1;
+}
+
+/* ============================================================================
+ * SPI Interface
+ * ============================================================================ */
+
+static const intf_spi_ops_t *spi_ops = NULL;
+
+int intf_spi_register(const intf_spi_ops_t *ops)
+{
+    if (ops == NULL) return -1;
+    spi_ops = ops;
+    return 0;
+}
+
+int intf_spi_init(intf_spi_port_t port, const intf_spi_cfg_t *cfg)
+{
+    if (spi_ops && spi_ops->init) return spi_ops->init(port, cfg);
+    return -1;
+}
+
+int intf_spi_transfer(intf_spi_port_t port, const uint8_t *tx, uint8_t *rx, size_t len, uint32_t timeout_ms)
+{
+    if (spi_ops && spi_ops->transfer) return spi_ops->transfer(port, tx, rx, len, timeout_ms);
+    return -1;
+}
+
+int intf_spi_transmit(intf_spi_port_t port, const uint8_t *data, size_t len, uint32_t timeout_ms)
+{
+    if (spi_ops && spi_ops->transmit) return spi_ops->transmit(port, data, len, timeout_ms);
+    return -1;
+}
+
+int intf_spi_receive(intf_spi_port_t port, uint8_t *data, size_t len, uint32_t timeout_ms)
+{
+    if (spi_ops && spi_ops->receive) return spi_ops->receive(port, data, len, timeout_ms);
+    return -1;
+}
+
+/* ============================================================================
+ * I2C Interface
+ * ============================================================================ */
+
+static const intf_i2c_ops_t *i2c_ops = NULL;
+
+int intf_i2c_register(const intf_i2c_ops_t *ops)
+{
+    if (ops == NULL) return -1;
+    i2c_ops = ops;
+    return 0;
+}
+
+int intf_i2c_init(intf_i2c_port_t port, const intf_i2c_cfg_t *cfg)
+{
+    if (i2c_ops && i2c_ops->init) return i2c_ops->init(port, cfg);
+    return -1;
+}
+
+int intf_i2c_master_transmit(intf_i2c_port_t port, uint16_t addr, const uint8_t *data, size_t len, uint32_t timeout_ms)
+{
+    if (i2c_ops && i2c_ops->master_transmit) return i2c_ops->master_transmit(port, addr, data, len, timeout_ms);
+    return -1;
+}
+
+int intf_i2c_master_receive(intf_i2c_port_t port, uint16_t addr, uint8_t *data, size_t len, uint32_t timeout_ms)
+{
+    if (i2c_ops && i2c_ops->master_receive) return i2c_ops->master_receive(port, addr, data, len, timeout_ms);
+    return -1;
+}
+
+int intf_i2c_write_reg(intf_i2c_port_t port, uint16_t addr, uint16_t reg, uint8_t reg_size, const uint8_t *data, size_t len)
+{
+    if (i2c_ops && i2c_ops->write_reg) return i2c_ops->write_reg(port, addr, reg, reg_size, data, len);
+    return -1;
+}
+
+int intf_i2c_read_reg(intf_i2c_port_t port, uint16_t addr, uint16_t reg, uint8_t reg_size, uint8_t *data, size_t len)
+{
+    if (i2c_ops && i2c_ops->read_reg) return i2c_ops->read_reg(port, addr, reg, reg_size, data, len);
+    return -1;
+}
+
+/* ============================================================================
+ * GPIO Interface
+ * ============================================================================ */
+
+static const intf_gpio_t *gpio_ops = NULL;
+
+int intf_gpio_register(const intf_gpio_t *ops)
+{
+    if (ops == NULL) return -1;
+    gpio_ops = ops;
+    return 0;
+}
+
+int intf_gpio_init(const intf_gpio_cfg_t *cfg)
+{
+    if (gpio_ops && gpio_ops->init) return gpio_ops->init(cfg);
+    return -1;
+}
+
+int intf_gpio_set_level(intf_gpio_pin_t pin, intf_gpio_level_t level)
+{
+    if (gpio_ops && gpio_ops->set_level) return gpio_ops->set_level(pin, level);
+    return -1;
+}
+
+int intf_gpio_get_level(intf_gpio_pin_t pin, intf_gpio_level_t *level)
+{
+    if (gpio_ops && gpio_ops->get_level) return gpio_ops->get_level(pin, level);
+    return -1;
+}
+
+int intf_gpio_toggle(intf_gpio_pin_t pin)
+{
+    if (gpio_ops && gpio_ops->toggle) return gpio_ops->toggle(pin);
     return -1;
 }

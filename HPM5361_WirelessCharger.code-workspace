@@ -1,16 +1,16 @@
 {
   "folders": [
     {
-      "name": "HPM5361_WirelessCharger",
-      "path": "."
-    },
-    {
       "name": "hpm_sdk",
       "path": "../hpm_sdk"
     },
     {
       "name": "alliance_hpm_base_platform",
       "path": "../alliance_hpm_base_platform"
+    },
+    {
+      "name": "HPM5361_WirelessCharger",
+      "path": "."
     }
   ],
   "settings": {
@@ -25,26 +25,20 @@
     "files.exclude": {
       "**/.git": true,
       "**/.cache": true,
-      "**/build": true,
-      "**/output": true
     },
     "search.exclude": {
       "**/.cache": true,
       "**/.venv": true,
-      "**/build": true,
-      "**/output": true
     },
     "files.watcherExclude": {
       "**/.cache/**": true,
       "**/.venv/**": true,
-      "**/build/**": true,
-      "**/output/**": true
     },
     "cSpell.enabled": true,
     "cSpell.language": "en,zh-CN",
     "cSpell.useGitignore": true,
     "cSpell.maxNumberOfProblems": 2000,
-    "editor.formatOnSave": false,
+    "editor.formatOnSave": true,
     "terminal.integrated.cwd": "."
   }
 }

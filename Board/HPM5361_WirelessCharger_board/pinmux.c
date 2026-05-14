@@ -93,30 +93,32 @@ void init_uart0_pins(void)
 
 void init_gpio_pins(void)
 {
+    /* PA08: GPIO output with strong pull-up (keep high for JTAG TRST) */
     HPM_IOC->PAD[IOC_PAD_PA08].FUNC_CTL = IOC_PA08_FUNC_CTL_GPIO_A_08;
-
+    HPM_IOC->PAD[IOC_PAD_PA08].PAD_CTL = IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(1);
     gpiom_set_pin_controller(HPM_GPIOM, GPIOM_ASSIGN_GPIOA, 8, gpiom_soc_gpio0);
     gpio_set_pin_output(HPM_GPIO0, GPIO_OE_GPIOA, 8);
     gpio_write_pin(HPM_GPIO0, GPIO_DO_GPIOA, 8, 1);
 
+    /* PA09: Button input, falling edge interrupt, hysteresis, pull-up */
     HPM_IOC->PAD[IOC_PAD_PA09].FUNC_CTL = IOC_PA09_FUNC_CTL_GPIO_A_09;
-
+    HPM_IOC->PAD[IOC_PAD_PA09].PAD_CTL = IOC_PAD_PAD_CTL_HYS_SET(1) | IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(1);
     gpiom_set_pin_controller(HPM_GPIOM, GPIOM_ASSIGN_GPIOA, 9, gpiom_soc_gpio0);
     gpio_set_pin_input(HPM_GPIO0, GPIO_OE_GPIOA, 9);
-    gpio_config_pin_interrupt(HPM_GPIO0, GPIO_DI_GPIOA, 9, gpio_interrupt_trigger_edge_rising);
-    gpio_enable_pin_interrupt(HPM_GPIO0, GPIO_IE_GPIOA, 9);
 
+    /* PA02: GPIO output, initial low, pull-down */
     HPM_IOC->PAD[IOC_PAD_PA02].FUNC_CTL = IOC_PA02_FUNC_CTL_GPIO_A_02;
-
+    HPM_IOC->PAD[IOC_PAD_PA02].PAD_CTL = IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(0);
     gpiom_set_pin_controller(HPM_GPIOM, GPIOM_ASSIGN_GPIOA, 2, gpiom_soc_gpio0);
     gpio_set_pin_output(HPM_GPIO0, GPIO_OE_GPIOA, 2);
-    gpio_write_pin(HPM_GPIO0, GPIO_DO_GPIOA, 2, 1);
+    gpio_write_pin(HPM_GPIO0, GPIO_DO_GPIOA, 2, 0);
 
+    /* PA03: GPIO output, initial low, pull-down */
     HPM_IOC->PAD[IOC_PAD_PA03].FUNC_CTL = IOC_PA03_FUNC_CTL_GPIO_A_03;
-
+    HPM_IOC->PAD[IOC_PAD_PA03].PAD_CTL = IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(0);
     gpiom_set_pin_controller(HPM_GPIOM, GPIOM_ASSIGN_GPIOA, 3, gpiom_soc_gpio0);
     gpio_set_pin_output(HPM_GPIO0, GPIO_OE_GPIOA, 3);
-    gpio_write_pin(HPM_GPIO0, GPIO_DO_GPIOA, 3, 1);
+    gpio_write_pin(HPM_GPIO0, GPIO_DO_GPIOA, 3, 0);
 }
 
 void init_pins(void)

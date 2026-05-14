@@ -61,7 +61,7 @@
  *      0 - 4MB / 1 - 8MB / 2 - 16MB
  */
 #if defined(FLASH_XIP) && FLASH_XIP
-/* __attribute__ ((section(".nor_cfg_option"), used)) const uint32_t option[4] = {0xfcf90002, 0x00000007, 0xE, 0x0}; */    /* setting by user's board */
+__attribute__ ((section(".nor_cfg_option"), used)) const uint32_t option[4] = {0xfcf90002, 0x00000005, 0x1000, 0x0};
 #endif
 
 #if defined(FLASH_UF2) && FLASH_UF2

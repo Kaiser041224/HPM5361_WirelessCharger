@@ -13,6 +13,11 @@ OUTPUT_DIR := $(ROOT_DIR)/output
 PROJECT_NAME ?= $(notdir $(ROOT_DIR))
 
 # ============================================================================
+# Host Path Configuration (for Ozone debug outside container)
+# ============================================================================
+HOST_WORKSPACE_DIR ?= D:/Codes/HPM_dev/Alliance-HPM-Dev
+
+# ============================================================================
 # Board Selection
 # ============================================================================
 # Default board (can be overridden: make BOARD=user_board)
@@ -32,13 +37,18 @@ HPM_BUILD_TYPE ?= flash_xip
 GENERATOR ?= Ninja
 LAST_BUILD_LOG := $(BUILD_DIR)/last_build.log
 
+# Optimization level override (empty = use CMAKE_BUILD_TYPE default)
+# Usage: make build OPT_LEVEL=-O2
+# Valid values: -O0, -O1, -O2, -O3, -Os, -Ofast
+OPT_LEVEL ?= -O0
+
 # ============================================================================
 # Flash Configuration
 # ============================================================================
 FLASH_TOOL ?= openocd
 OPENOCD_BIN ?= $(if $(HPM_OPENOCD_PREFIX),$(HPM_OPENOCD_PREFIX)/bin/openocd,openocd)
 OCD_SCRIPTS ?= $(if $(HPM_OCD_SCRIPTS),$(HPM_OCD_SCRIPTS),$(ROOT_DIR)/../hpm_sdk/boards/openocd)
-PROBE_CFG ?= probes/cmsis_dap.cfg
+PROBE_CFG ?= probes/jlink.cfg
 SOC_CFG ?= soc/hpm5300.cfg
 BOARD_CFG ?= boards/hpm5301evklite.cfg
 JLINK_DEVICE ?= HPM5301xEGx
@@ -54,6 +64,18 @@ FLASH_SCRIPT := $(ROOT_DIR)/../tools/scripts/flash_target.sh
 # ============================================================================
 # CMake Arguments
 # ============================================================================
+DEBUG_PREFIX_MAP := -fdebug-prefix-map=/workspace/HPM5361_WirelessCharger=$(HOST_WORKSPACE_DIR)/HPM5361_WirelessCharger -fdebug-prefix-map=/workspace/hpm_sdk=$(HOST_WORKSPACE_DIR)/hpm_sdk
+
+# Build extra C flags with optional optimization override
+EXTRA_C_FLAGS := $(DEBUG_PREFIX_MAP)
+
+# Optimization level flags for Debug/Release builds
+ifeq ($(OPT_LEVEL),)
+  OPT_CMAKE_ARGS :=
+else
+  OPT_CMAKE_ARGS := -DCMAKE_C_FLAGS_DEBUG="$(OPT_LEVEL) -g" -DCMAKE_C_FLAGS_RELEASE="$(OPT_LEVEL) -DNDEBUG"
+endif
+
 CMAKE_ARGS := \
 	-G$(GENERATOR) \
 	-DBOARD=$(BOARD) \
@@ -61,7 +83,9 @@ CMAKE_ARGS := \
 	-DRV_ARCH=$(RV_ARCH) \
 	-DRV_ABI=$(RV_ABI) \
 	-DCMAKE_BUILD_TYPE=$(CMAKE_BUILD_TYPE) \
-	-DHPM_BUILD_TYPE=$(HPM_BUILD_TYPE)
+	-DHPM_BUILD_TYPE=$(HPM_BUILD_TYPE) \
+	-DCMAKE_C_FLAGS="$(EXTRA_C_FLAGS)" \
+	$(OPT_CMAKE_ARGS)
 
 # ============================================================================
 # Phony Targets
@@ -194,12 +218,14 @@ help:
 	@echo "  BOARD=<name>             Board name (default: hpm5301evklite_board)"
 	@echo "  CMAKE_BUILD_TYPE=<type>  Debug or Release (default: Debug)"
 	@echo "  HPM_BUILD_TYPE=<type>    flash_xip, flash_sdram_xip, etc."
+	@echo "  OPT_LEVEL=<level>        Override optimization: -O0, -O1, -O2, -O3, -Os"
 	@echo "  FLASH_TOOL=<tool>        openocd or jlink (default: openocd)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build"
 	@echo "  make BOARD=user_board build"
 	@echo "  make CMAKE_BUILD_TYPE=Release artifacts"
+	@echo "  make OPT_LEVEL=-O2 build"
 	@echo "  make FLASH_TOOL=jlink flash"
 
 # ============================================================================
