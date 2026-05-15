@@ -34,12 +34,15 @@ sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/hpm_impl)
 # Driver implementations
 sdk_app_src(Driver/hpm_impl/drv_clock.c)
 sdk_app_src(Driver/hpm_impl/drv_gpio.c)
+sdk_app_src(Driver/hpm_impl/drv_hrpwm.c)
+sdk_app_src(Driver/hpm_impl/drv_gpwm.c)
 
 # Interface default stubs
 sdk_app_src(Interface/intf_default.c)
 
 # App logic
 sdk_app_src(App/Logic/Src/app_gpio.c)
+sdk_app_src(App/Logic/Src/app_buzzer.c)
 
 # Main entry
 sdk_app_src(App/main.c)

@@ -1,4 +1,6 @@
 #include "intf_pwm.h"
+#include "intf_hrpwm.h"
+#include "intf_gpwm.h"
 #include "intf_adc.h"
 #include "intf_uart.h"
 #include "intf_spi.h"
@@ -47,6 +49,128 @@ int intf_pwm_start(intf_pwm_ch_t ch)
 int intf_pwm_stop(intf_pwm_ch_t ch)
 {
     if (pwm_ops && pwm_ops->stop) return pwm_ops->stop(ch);
+    return -1;
+}
+
+/* ============================================================================
+ * HRPWM Interface
+ * ============================================================================ */
+
+static const intf_hrpwm_t *hrpwm_ops = NULL;
+
+int intf_hrpwm_register(const intf_hrpwm_t *ops)
+{
+    if (ops == NULL) return -1;
+    hrpwm_ops = ops;
+    return 0;
+}
+
+int intf_hrpwm_init(intf_hrpwm_ch_t ch, const intf_hrpwm_cfg_t *cfg)
+{
+    if (hrpwm_ops && hrpwm_ops->init) return hrpwm_ops->init(ch, cfg);
+    return -1;
+}
+
+int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty)
+{
+    if (hrpwm_ops && hrpwm_ops->set_duty) return hrpwm_ops->set_duty(ch, duty);
+    return -1;
+}
+
+int intf_hrpwm_set_frequency(intf_hrpwm_ch_t ch, uint32_t frequency_hz)
+{
+    if (hrpwm_ops && hrpwm_ops->set_frequency) return hrpwm_ops->set_frequency(ch, frequency_hz);
+    return -1;
+}
+
+int intf_hrpwm_start(intf_hrpwm_ch_t ch)
+{
+    if (hrpwm_ops && hrpwm_ops->start) return hrpwm_ops->start(ch);
+    return -1;
+}
+
+int intf_hrpwm_stop(intf_hrpwm_ch_t ch)
+{
+    if (hrpwm_ops && hrpwm_ops->stop) return hrpwm_ops->stop(ch);
+    return -1;
+}
+
+/* ============================================================================
+ * GPWM Interface
+ * ============================================================================ */
+
+static const intf_gpwm_t *gpwm_ops = NULL;
+
+int intf_gpwm_register(const intf_gpwm_t *ops)
+{
+    if (ops == NULL) return -1;
+    gpwm_ops = ops;
+    return 0;
+}
+
+int intf_gpwm_init(intf_gpwm_ch_t ch, const intf_gpwm_cfg_t *cfg)
+{
+    if (gpwm_ops && gpwm_ops->init) return gpwm_ops->init(ch, cfg);
+    return -1;
+}
+
+int intf_gpwm_set_duty(intf_gpwm_ch_t ch, float duty)
+{
+    if (gpwm_ops && gpwm_ops->set_duty) return gpwm_ops->set_duty(ch, duty);
+    return -1;
+}
+
+int intf_gpwm_set_frequency(intf_gpwm_ch_t ch, uint32_t frequency_hz)
+{
+    if (gpwm_ops && gpwm_ops->set_frequency) return gpwm_ops->set_frequency(ch, frequency_hz);
+    return -1;
+}
+
+int intf_gpwm_start(intf_gpwm_ch_t ch)
+{
+    if (gpwm_ops && gpwm_ops->start) return gpwm_ops->start(ch);
+    return -1;
+}
+
+int intf_gpwm_stop(intf_gpwm_ch_t ch)
+{
+    if (gpwm_ops && gpwm_ops->stop) return gpwm_ops->stop(ch);
+    return -1;
+}
+
+int intf_gpwm_force_low(intf_gpwm_ch_t ch)
+{
+    if (gpwm_ops && gpwm_ops->force_low) return gpwm_ops->force_low(ch);
+    return -1;
+}
+
+int intf_gpwm_force_release(intf_gpwm_ch_t ch)
+{
+    if (gpwm_ops && gpwm_ops->force_release) return gpwm_ops->force_release(ch);
+    return -1;
+}
+
+int intf_gpwm_capture_init(intf_gpwm_ch_t ch, const intf_gpwm_capture_cfg_t *cfg)
+{
+    if (gpwm_ops && gpwm_ops->capture_init) return gpwm_ops->capture_init(ch, cfg);
+    return -1;
+}
+
+int intf_gpwm_capture_start(intf_gpwm_ch_t ch)
+{
+    if (gpwm_ops && gpwm_ops->capture_start) return gpwm_ops->capture_start(ch);
+    return -1;
+}
+
+int intf_gpwm_capture_stop(intf_gpwm_ch_t ch)
+{
+    if (gpwm_ops && gpwm_ops->capture_stop) return gpwm_ops->capture_stop(ch);
+    return -1;
+}
+
+int intf_gpwm_capture_poll(intf_gpwm_ch_t ch, intf_gpwm_capture_t *capture)
+{
+    if (gpwm_ops && gpwm_ops->capture_poll) return gpwm_ops->capture_poll(ch, capture);
     return -1;
 }
 

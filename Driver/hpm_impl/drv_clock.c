@@ -53,3 +53,13 @@ uint32_t intf_clock_get_ahb_freq(void)
 {
     return clock_get_frequency(clock_ahb);
 }
+
+void intf_clock_delay_ms(uint32_t ms)
+{
+    clock_cpu_delay_ms(ms);
+}
+
+void intf_clock_delay_us(uint32_t us)
+{
+    clock_cpu_delay_us(us);
+}

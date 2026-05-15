@@ -67,16 +67,39 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 - [x] PLIC 中断使能 - IRQn_GPIO0_A, IRQn_GPIO0_B
 - [ ] GPIO 消抖配置 - 需要直接操作 FILTER 寄存器
 
-### 2.3 PWM 驱动 (`Driver/hpm_impl/drv_pwm.c`)
+### 2.3 HRPWM 驱动 (`Driver/hpm_impl/drv_hrpwm.c`)
 
-- [ ] `#include "hpm_pwm_drv.h"`
-- [ ] `hpm_pwm_init()` - 配置 PWM 频率、死区、故障保护
-- [ ] `hpm_pwm_set_duty()` - 更新比较值，支持影子寄存器
-- [ ] `hpm_pwm_set_frequency()` - 动态调整频率
-- [ ] `hpm_pwm_start()` / `hpm_pwm_stop()` - 启停控制
-- [ ] 故障保护输入配置（过流/过压硬件联锁）
+- [x] `intf_hrpwm.h` 接口定义 - 匿名结构体 ops、float duty [0.0-1.0]
+- [x] `drv_hrpwm.c` 驱动实现 - 映射到 HPM_PWM0
+- [x] `intf_default.c` 注册分发
+- [x] 边沿对齐 PWM 输出（ch0..3，PA24-PA27）
+- [x] 频率/占空比动态调整
+- [x] 启停控制（stop 只关闭单通道输出，不停全局 counter）
+- [x] NaN duty 防护
+- [ ] fault source / fault recovery 配置
+- [ ] deadtime 配置
+- [ ] 互补输出 pair 模式
+- [ ] force-safe-low / brake API
 
-### 2.4 ADC 驱动 (`Driver/hpm_impl/drv_adc.c`)
+### 2.4 GPWM 驱动 (`Driver/hpm_impl/drv_gpwm.c`)
+
+- [x] `intf_gpwm.h` 接口定义 - 匿名结构体 ops、float duty [0.0-1.0]
+- [x] `drv_gpwm.c` 驱动实现 - 映射到 HPM_GPTMR0
+- [x] `intf_default.c` 注册分发
+- [x] PWM 输出（ch2=PA10, ch3=PB15）
+- [x] 频率/占空比动态调整
+- [x] 启停控制（start 时复位计数器，确保首周期完整）
+- [x] force_low / force_release 强制输出（CMP0/CMP1=0xFFFFFFFF）
+- [x] 输入捕获（ch1=PB09，polling 模式，rising/falling/both edge）
+- [x] NaN duty 防护
+- [x] 通道范围校验（输出 ch2..3，捕获 ch1）
+
+### 2.5 Clock 驱动扩展 (`Driver/hpm_impl/drv_clock.c`)
+
+- [x] `intf_clock_delay_ms()` - 封装 `clock_cpu_delay_ms()`
+- [x] `intf_clock_delay_us()` - 封装 `clock_cpu_delay_us()`
+
+### 2.6 ADC 驱动 (`Driver/hpm_impl/drv_adc.c`)
 
 - [ ] `#include "hpm_adc16_drv.h"`
 - [ ] `hpm_adc_init()` - 配置 ADC 时钟、采样率、分辨率
@@ -124,7 +147,13 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 - [x] 按键中断回调 - `button_isr()`、`button_press_count`
 - [ ] 按键中断触发问题排查 - 需要在调试器中验证
 
-### 3.2 充电状态机（待实现）
+### 3.2 Buzzer 业务封装 (`App/Logic/Src/app_buzzer.c`)
+
+- [x] `app_buzzer_init()` - GPWM 驱动注册、ch3 初始化、默认 4kHz、force_low
+- [x] `app_buzzer_set(bool enabled, uint32_t frequency_hz)` - 控制蜂鸣器开关和音调
+- [x] 使用 GPWM force_low/force_release 实现确定低电平静音
+
+### 3.3 充电状态机（待实现）
 
 | 状态 | 功能 | 优先级 | 状态 |
 |------|------|--------|------|
