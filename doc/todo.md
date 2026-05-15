@@ -306,5 +306,5 @@ HPM5361_WirelessCharger/
 
 | 中断源 | IRQ 号 | 优先级 | 回调函数 |
 |--------|--------|--------|----------|
-| GPIO0_A (PA0-PA7) | IRQn_GPIO0_A | 1 | isr_gpio0_a |
-| GPIO0_B (PA8-PA15) | IRQn_GPIO0_B | 1 | isr_gpio0_b |
+| GPIO0_A (GPIOA PA0-PA31) | IRQn_GPIO0_A | 1 | isr_gpio0_a |
+| GPIO0_B (GPIOB PB0-PB31) | IRQn_GPIO0_B | 1 | isr_gpio0_b |

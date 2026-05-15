@@ -45,6 +45,8 @@
     "eww",
     "flashxip",
     "gdb",
+    "GPIOA",
+    "GPIOB",
     "gpiom",
     "gptmr",
     "hal",
