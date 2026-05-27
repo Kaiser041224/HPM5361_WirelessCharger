@@ -10,6 +10,9 @@ cmake_minimum_required(VERSION 3.13)
 # set(CUSTOM_SES_LINKER_FILE ${CMAKE_CURRENT_SOURCE_DIR}/linkers/segger/user_linker.icf)
 # set(CUSTOM_IAR_LINKER_FILE ${CMAKE_CURRENT_SOURCE_DIR}/linkers/iar/user_linker.icf)
 
+# Enable DMA manager component for WS2812
+set(CONFIG_DMA_MGR 1)
+
 find_package(hpm-sdk REQUIRED HINTS $ENV{HPM_SDK_BASE})
 
 project(user_app)
@@ -26,6 +29,7 @@ sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Logic/Inc)
 
 # Driver headers
 sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/hpm_impl)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/WS2812)
 
 # ============================================================================
 # Source Files
@@ -36,6 +40,8 @@ sdk_app_src(Driver/hpm_impl/drv_clock.c)
 sdk_app_src(Driver/hpm_impl/drv_gpio.c)
 sdk_app_src(Driver/hpm_impl/drv_hrpwm.c)
 sdk_app_src(Driver/hpm_impl/drv_gpwm.c)
+sdk_app_src(Driver/hpm_impl/drv_ws2812.c)
+sdk_app_src(Driver/WS2812/WS2812.c)
 
 # Interface default stubs
 sdk_app_src(Interface/intf_default.c)
@@ -43,6 +49,7 @@ sdk_app_src(Interface/intf_default.c)
 # App logic
 sdk_app_src(App/Logic/Src/app_gpio.c)
 sdk_app_src(App/Logic/Src/app_buzzer.c)
+sdk_app_src(App/Logic/Src/app_ws2812.c)
 
 # Main entry
 sdk_app_src(App/main.c)

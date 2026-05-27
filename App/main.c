@@ -1,22 +1,29 @@
 #include "board.h"
 
 #include "hpm_clock_drv.h"
+#include "hpm_dma_mgr.h"
 #include "intf_clock.h"
 
 #include "app_buzzer.h"
 #include "app_gpio.h"
+#include "app_ws2812.h"
+
+extern int drv_ws2812_register(void);
 
 int main(void) {
     board_init();
     intf_clock_init();
     app_gpio_init();
-    app_gpio_set(PIN_DRVPWR, true); /* Power on the driver */
+    app_gpio_set(PIN_DRVPWR, true);
     app_buzzer_init();
+
+    dma_mgr_init();
+    drv_ws2812_register();
+    app_ws2812_init();
+
     while (1) {
-        app_buzzer_set(true, 2000); /* Play buzzer at 2 kHz */
-        intf_clock_delay_ms(500);
-        app_buzzer_set(false, 0);   /* Stop buzzer */
-        intf_clock_delay_ms(500);
+        app_ws2812_rainbow(16);
+        intf_clock_delay_ms(20);
     }
 
     return 0;
