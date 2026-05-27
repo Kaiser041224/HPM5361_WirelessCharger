@@ -69,17 +69,22 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 
 ### 2.3 HRPWM 驱动 (`Driver/hpm_impl/drv_hrpwm.c`)
 
-- [x] `intf_hrpwm.h` 接口定义 - 匿名结构体 ops、float duty [0.0-1.0]
-- [x] `drv_hrpwm.c` 驱动实现 - 映射到 HPM_PWM0
-- [x] `intf_default.c` 注册分发
-- [x] 边沿对齐 PWM 输出（ch0..3，PA24-PA27）
-- [x] 频率/占空比动态调整
-- [x] 启停控制（stop 只关闭单通道输出，不停全局 counter）
-- [x] NaN duty 防护
+> **注意**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API，命名保留为 `hrpwm` 用于接口演进。
+
+- [x] `intf_hrpwm.h` 接口定义 - 匿名结构体 ops、float duty [0.0-1.0]（符合 AGENTS.md 规范）
+- [x] `drv_hrpwm.c` 驱动实现 - 映射到 HPM_PWM0，165 行完整实现
+- [x] `intf_default.c` 注册分发 - `hrpwm_ops` 指针保存与分发
+- [x] 边沿对齐 PWM 输出（ch0..3，PA24-PA27 → PWM0_P_0..3）
+- [x] 频率/占空比动态调整（实例级频率共享，改频后重新应用所有通道 duty）
+- [x] 启停控制（`stop` 只关闭单通道输出，不停全局 counter）
+- [x] NaN duty 防护（`duty == duty` 检测 NaN）
+- [x] 通道范围校验（`ch < HRPWM_CHANNEL_COUNT`）
+- [x] 时钟配置（`clock_mot0`，`clock_add_to_group` 使能）
 - [ ] fault source / fault recovery 配置
-- [ ] deadtime 配置
-- [ ] 互补输出 pair 模式
-- [ ] force-safe-low / brake API
+- [ ] deadtime 配置（当前固定为 0）
+- [ ] 互补输出 pair 模式（需使用 `pwm_setup_waveform_in_pair`）
+- [ ] force-safe-low / brake API（参考 GPWM 的 `force_low`/`force_release`）
+- [ ] shadow register 同步更新策略优化
 
 ### 2.4 GPWM 驱动 (`Driver/hpm_impl/drv_gpwm.c`)
 
@@ -93,6 +98,46 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 - [x] 输入捕获（ch1=PB09，polling 模式，rising/falling/both edge）
 - [x] NaN duty 防护
 - [x] 通道范围校验（输出 ch2..3，捕获 ch1）
+
+---
+
+## 4. HRPWM 驱动架构总结
+
+### 4.1 当前实现状态
+
+| 组件 | 文件 | 状态 | 说明 |
+|------|------|------|------|
+| 接口定义 | `Interface/intf_hrpwm.h` | ✅ 完成 | 匿名结构体 ops、float duty 归一化 |
+| 驱动实现 | `Driver/hpm_impl/drv_hrpwm.c` | ✅ 完成 | 165 行，映射到 HPM_PWM0 |
+| 注册分发 | `Interface/intf_default.c` | ✅ 完成 | `hrpwm_ops` 指针保存与分发 |
+| 板级引脚 | `Board/.../pinmux.c` | ✅ 完成 | PA24-PA27 → PWM0_P_0..3 |
+| 设计文档 | `doc/hrpwm_driver_design.md` | ✅ 完成 | 包含 SDK 示例参考和高级功能指南 |
+
+> **注意**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API，命名保留为 `hrpwm` 用于接口演进。
+
+### 4.2 SDK 示例参考
+
+| 示例 | 位置 | 关键内容 |
+|------|------|----------|
+| **抖动技术** | `samples/drivers/pwm/pwm_output/` | `jitter_cmp` 配置，提高 DPWM 分辨率 |
+| **HRPWM 输出** | `samples/drivers/pwm/hrpwm/` | 高分辨率 PWM + Fault 保护 |
+| **HRPWM 校准** | `samples/drivers/pwmv2/hrpwm_calibrate/` | 温度补偿校准 |
+| **电机控制** | `samples/motor_ctrl/bldc_foc/` | PWM + ADC 同步采样 |
+
+### 4.3 后续开发优先级
+
+| 优先级 | 功能 | 说明 |
+|--------|------|------|
+| 高 | fault 保护 | fault source、fault recovery、safe output state |
+| 高 | deadtime | 功率桥驱动必需，当前固定为 0 |
+| 高 | 抖动技术集成 | 将 `jitter_cmp` 集成到 drv_hrpwm.c，提高分辨率 |
+| 中 | 互补输出 | `pwm_setup_waveform_in_pair` 封装 |
+| 中 | force-safe-low | 参考 SDK 示例实现功率级安全关断 |
+| 中 | bootstrap | 统一驱动注册入口 `hpm_drivers_register_all()` |
+
+详细设计文档请参考：`doc/hrpwm_driver_design.md`
+
+---
 
 ### 2.5 Clock 驱动扩展 (`Driver/hpm_impl/drv_clock.c`)
 

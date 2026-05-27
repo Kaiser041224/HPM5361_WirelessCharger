@@ -16,3 +16,6 @@ output/
 *.hex
 *.map
 *.asm
+
+#AI generated files
+*.sisyphus
