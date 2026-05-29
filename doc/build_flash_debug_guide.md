@@ -8,7 +8,7 @@
 - HPM SDK：`/workspace/hpm_sdk`
 - HPM OpenOCD：`/workspace/tools/openocd-hpm/install/bin/openocd`
 - RISC-V 工具链：`/opt/riscv32-gnu-toolchain-elf-bin/bin`
-- 调试器：DAPLink / CMSIS-DAP，使用 JTAG
+- 调试器：J-Link（支持 RTT）、DAPLink / CMSIS-DAP（不支持 RTT）
 
 ---
 
@@ -581,7 +581,64 @@ telnet localhost 4444
 
 ---
 
-## 10. 配置速查
+## 10. SEGGER RTT 实时调试输出
+
+### 10.1 概述
+
+SEGGER RTT 通过调试器的 JTAG/SWD 接口实现零 CPU 开销的实时日志输出，无需额外串口。
+
+当前工程支持情况：
+
+| 调试器 | RTT 支持 | 说明 |
+|--------|:--------:|------|
+| J-Link | ✅ | J-Link GDB Server 原生支持 RTT |
+| DAPLink / OpenOCD | ❌ | HPM OpenOCD fork 缺少 `rtt setup` 命令 |
+
+### 10.2 固件集成
+
+`CMakeLists.txt` 中手动引入 SEGGER RTT 源码（不含 syscalls），避免与 UART debug console 的 `_write` 冲突：
+
+```cmake
+set(RTT_DIR $ENV{HPM_SDK_BASE}/middleware/segger_rtt)
+sdk_app_inc(${RTT_DIR}/Config)
+sdk_app_inc(${RTT_DIR}/RTT)
+sdk_app_src(${RTT_DIR}/RTT/SEGGER_RTT.c)
+sdk_app_src(${RTT_DIR}/RTT/SEGGER_RTT_printf.c)
+```
+
+代码中使用 `SEGGER_RTT_printf` 输出 RTT 日志，标准 `printf` 保持走 UART 不受影响：
+
+```c
+#include "SEGGER_RTT.h"
+
+SEGGER_RTT_WriteString(0, "Hello RTT\r\n");
+SEGGER_RTT_printf(0, "value: %d\r\n", some_var);
+```
+
+### 10.3 VS Code 配置
+
+`.vscode/launch.json` 中有两个调试配置：
+
+- **HPM5361 Debug - J-Link (RTT)**：RTT 启用，VS Code 自动打开 RTT Console
+- **HPM5361 Debug - OpenOCD DAPLink**：RTT 禁用
+
+使用时在调试下拉中选择对应配置。
+
+### 10.4 为什么不使用 `CONFIG_SEGGER_RTT=1`
+
+SDK 的 `CONFIG_SEGGER_RTT=1` 会引入 `SEGGER_RTT_Syscalls_GCC.c`，该文件定义 `_write` 函数将 `printf` 重定向到 RTT。这会与 `hpm_debug_console.c` 的 UART `_write` 冲突（`multiple definition`）。
+
+解决方案对比：
+
+| 方案 | `_write` 冲突 | UART printf | RTT printf |
+|------|:---:|:---:|:---:|
+| `CONFIG_SEGGER_RTT=1` 单独 | ❌ 冲突 | - | - |
+| `CONFIG_SEGGER_RTT=1` + `CONFIG_NDEBUG_CONSOLE=1` | ✅ | ❌ 禁用 | ✅ |
+| **手动引入（当前方案）** | ✅ | ✅ 保留 | ✅ |
+
+---
+
+## 11. 配置速查
 
 | 需求 | 命令/配置 |
 |------|-----------|
@@ -591,7 +648,7 @@ telnet localhost 4444
 | 降速下载 | `make flash OPENOCD_SPEED=400` |
 | 启动 GDB Server | `make debug-openocd` |
 | 降速启动 GDB Server | `make debug-openocd OPENOCD_SPEED=400` |
-| VS Code F5 调试 | 使用 `.vscode/launch.json` 的 `HPM5361 Debug - OpenOCD DAPLink` |
+| VS Code F5 调试 | 选择 `HPM5361 Debug - J-Link (RTT)` 或 `OpenOCD DAPLink` |
 | 退出调试后复位芯片 | `Tasks: Run Task` → `reset chip` |
 | 修改宿主机源码根路径 | `HOST_WORKSPACE_DIR ?= ...` |
 | 修改 F5 调试源码路径模式 | `.vscode/tasks.json` 中 `DEBUG_PATH_MODE=container` |

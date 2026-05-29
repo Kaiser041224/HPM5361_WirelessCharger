@@ -17,6 +17,14 @@ find_package(hpm-sdk REQUIRED HINTS $ENV{HPM_SDK_BASE})
 
 project(user_app)
 
+# SEGGER RTT (manually included without syscalls to avoid _write conflict)
+# UART printf remains on DAPLink; use SEGGER_RTT_printf for RTT output on J-Link
+set(RTT_DIR $ENV{HPM_SDK_BASE}/middleware/segger_rtt)
+sdk_app_inc(${RTT_DIR}/Config)
+sdk_app_inc(${RTT_DIR}/RTT)
+sdk_app_src(${RTT_DIR}/RTT/SEGGER_RTT.c)
+sdk_app_src(${RTT_DIR}/RTT/SEGGER_RTT_printf.c)
+
 # ============================================================================
 # Include Paths
 # ============================================================================
