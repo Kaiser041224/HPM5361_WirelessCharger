@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "HPM5361 Debug - OpenOCD DAPLink",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/output/HPM5361_WirelessCharger.elf",
+      "preLaunchTask": "make artifacts",
+      "runToEntryPoint": "main",
+      "sourceFileMap": {
+        "D:/Codes/HPM_dev/Alliance-HPM-Dev/HPM5361_WirelessCharger": "${workspaceFolder}",
+        "D:/Codes/HPM_dev/Alliance-HPM-Dev/hpm_sdk": "/workspace/hpm_sdk"
+      },
+      "gdbPath": "/opt/riscv32-gnu-toolchain-elf-bin/bin/riscv32-unknown-elf-gdb",
+      "toolchainPrefix": "riscv32-unknown-elf",
+      "objdumpPath": "/opt/riscv32-gnu-toolchain-elf-bin/bin/riscv32-unknown-elf-objdump",
+      "nmPath": "/opt/riscv32-gnu-toolchain-elf-bin/bin/riscv32-unknown-elf-nm",
+      "serverpath": "/workspace/tools/openocd-hpm/install/bin/openocd",
+      "searchDir": [
+        "/workspace/hpm_sdk/boards/openocd"
+      ],
+      "configFiles": [
+        "probes/cmsis_dap.cfg",
+        "soc/hpm5300.cfg",
+        "${workspaceFolder}/Board/HPM5361_WirelessCharger_board/HPM5361_WirelessCharger_board.cfg"
+      ],
+      "serverArgs": [
+        "-c",
+        "bindto 127.0.0.1",
+        "-c",
+        "adapter speed 4000",
+        "-c",
+        "riscv set_command_timeout_sec 60",
+        "-c",
+        "reset_config srst_only srst_nogate connect_deassert_srst"
+      ],
+      "preLaunchCommands": [
+        "set confirm off",
+        "set pagination off",
+        "set remotetimeout 5"
+      ],
+      "rttConfig": {
+        "enabled": false
+      },
+      "liveWatch": {
+        "enabled": false
+      },
+      "showDevDebugOutput": "raw"
+    }
+  ]
+}

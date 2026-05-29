@@ -16,6 +16,12 @@ PROJECT_NAME ?= $(notdir $(ROOT_DIR))
 # Host Path Configuration (for Ozone debug outside container)
 # ============================================================================
 HOST_WORKSPACE_DIR ?= D:/Codes/HPM_dev/Alliance-HPM-Dev
+SDK_DIR := $(if $(HPM_SDK_BASE),$(HPM_SDK_BASE),$(ROOT_DIR)/../hpm_sdk)
+
+# Debug source path mode:
+#   host      - default, remap debug info to HOST_WORKSPACE_DIR for host-side debuggers
+#   container - keep debug info as container paths for VS Code Remote/Dev Container F5 debug
+DEBUG_PATH_MODE ?= host
 
 # ============================================================================
 # Board Selection
@@ -48,10 +54,12 @@ OPT_LEVEL ?= -O0
 FLASH_TOOL ?= openocd
 OPENOCD_BIN ?= $(if $(HPM_OPENOCD_PREFIX),$(HPM_OPENOCD_PREFIX)/bin/openocd,openocd)
 OCD_SCRIPTS ?= $(if $(HPM_OCD_SCRIPTS),$(HPM_OCD_SCRIPTS),$(ROOT_DIR)/../hpm_sdk/boards/openocd)
-PROBE_CFG ?= probes/jlink.cfg
+PROBE_CFG ?= probes/cmsis_dap.cfg
 SOC_CFG ?= soc/hpm5300.cfg
-BOARD_CFG ?= boards/hpm5301evklite.cfg
-JLINK_DEVICE ?= HPM5301xEGx
+BOARD_CFG ?= $(ROOT_DIR)/Board/HPM5361_WirelessCharger_board/HPM5361_WirelessCharger_board.cfg
+OPENOCD_SPEED ?= 1000
+OPENOCD_RISCV_TIMEOUT ?= 60
+JLINK_DEVICE ?= HPM5361xEGx
 JLINK_IF ?= JTAG
 JLINK_SPEED ?= 1000
 
@@ -64,7 +72,11 @@ FLASH_SCRIPT := $(ROOT_DIR)/../tools/scripts/flash_target.sh
 # ============================================================================
 # CMake Arguments
 # ============================================================================
-DEBUG_PREFIX_MAP := -fdebug-prefix-map=/workspace/HPM5361_WirelessCharger=$(HOST_WORKSPACE_DIR)/HPM5361_WirelessCharger -fdebug-prefix-map=/workspace/hpm_sdk=$(HOST_WORKSPACE_DIR)/hpm_sdk
+ifeq ($(DEBUG_PATH_MODE),container)
+  DEBUG_PREFIX_MAP := -fdebug-prefix-map=$(ROOT_DIR)=$(ROOT_DIR) -fdebug-prefix-map=$(SDK_DIR)=$(SDK_DIR)
+else
+  DEBUG_PREFIX_MAP := -fdebug-prefix-map=$(ROOT_DIR)=$(HOST_WORKSPACE_DIR)/$(PROJECT_NAME) -fdebug-prefix-map=$(SDK_DIR)=$(HOST_WORKSPACE_DIR)/hpm_sdk
+endif
 
 # Build extra C flags with optional optimization override
 EXTRA_C_FLAGS := $(DEBUG_PREFIX_MAP)
@@ -90,7 +102,7 @@ CMAKE_ARGS := \
 # ============================================================================
 # Phony Targets
 # ============================================================================
-.PHONY: all configure build build-core artifacts artifacts-core flash flash-openocd flash-jlink clean distclean rebuild help list-boards banner
+.PHONY: all configure build build-core artifacts artifacts-core flash flash-openocd debug-openocd flash-jlink clean distclean rebuild help list-boards banner
 
 all: artifacts
 
@@ -152,13 +164,27 @@ artifacts:
 flash: flash-$(FLASH_TOOL)
 
 flash-openocd:
-	@echo "[FLASH] Using OpenOCD..."
+	@echo "[FLASH] Using OpenOCD + CMSIS-DAP/DAPLink..."
 	$(OPENOCD_BIN) \
 		-s $(OCD_SCRIPTS) \
 		-f $(PROBE_CFG) \
 		-f $(SOC_CFG) \
 		-f $(BOARD_CFG) \
-		-c "program $(OUTPUT_DIR)/$(PROJECT_NAME).elf verify reset exit"
+		-c "adapter speed $(OPENOCD_SPEED)" \
+		-c "riscv set_command_timeout_sec $(OPENOCD_RISCV_TIMEOUT)" \
+		-c "reset_config srst_only srst_nogate connect_deassert_srst" \
+		-c "init; reset halt; program $(OUTPUT_DIR)/$(PROJECT_NAME).elf verify reset exit"
+
+debug-openocd:
+	@echo "[DEBUG] Starting OpenOCD GDB server with CMSIS-DAP/DAPLink..."
+	$(OPENOCD_BIN) \
+		-s $(OCD_SCRIPTS) \
+		-f $(PROBE_CFG) \
+		-f $(SOC_CFG) \
+		-f $(BOARD_CFG) \
+		-c "adapter speed $(OPENOCD_SPEED)" \
+		-c "riscv set_command_timeout_sec $(OPENOCD_RISCV_TIMEOUT)" \
+		-c "reset_config srst_only srst_nogate connect_deassert_srst"
 
 flash-jlink:
 	@echo "[FLASH] Using J-Link..."
@@ -207,6 +233,7 @@ help:
 	@echo "  artifacts     Build and copy outputs to output/"
 	@echo "  flash         Flash firmware (default: openocd)"
 	@echo "  flash-openocd Flash using OpenOCD"
+	@echo "  debug-openocd Start OpenOCD GDB server using DAPLink"
 	@echo "  flash-jlink   Flash using J-Link"
 	@echo "  clean         Remove build and output directories"
 	@echo "  distclean     Deep clean"
@@ -215,11 +242,12 @@ help:
 	@echo "  help          Show this help"
 	@echo ""
 	@echo "Options:"
-	@echo "  BOARD=<name>             Board name (default: hpm5301evklite_board)"
+	@echo "  BOARD=<name>             Board name (default: HPM5361_WirelessCharger_board)"
 	@echo "  CMAKE_BUILD_TYPE=<type>  Debug or Release (default: Debug)"
 	@echo "  HPM_BUILD_TYPE=<type>    flash_xip, flash_sdram_xip, etc."
 	@echo "  OPT_LEVEL=<level>        Override optimization: -O0, -O1, -O2, -O3, -Os"
 	@echo "  FLASH_TOOL=<tool>        openocd or jlink (default: openocd)"
+	@echo "  OPENOCD_SPEED=<kHz>      OpenOCD adapter speed (default: 1000)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make build"
