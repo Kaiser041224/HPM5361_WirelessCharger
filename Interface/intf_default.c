@@ -57,42 +57,91 @@ int intf_pwm_stop(intf_pwm_ch_t ch)
  * HRPWM Interface
  * ============================================================================ */
 
-static const intf_hrpwm_t *hrpwm_ops = NULL;
+#define HRPWM_INSTANCE_COUNT (2U)
+
+static const intf_hrpwm_t *hrpwm_ops[HRPWM_INSTANCE_COUNT] = {NULL};
 
 int intf_hrpwm_register(const intf_hrpwm_t *ops)
 {
-    if (ops == NULL) return -1;
-    hrpwm_ops = ops;
+    if (ops == NULL || ops->instance_id >= HRPWM_INSTANCE_COUNT) return -1;
+    hrpwm_ops[ops->instance_id] = ops;
     return 0;
 }
 
-int intf_hrpwm_init(intf_hrpwm_ch_t ch, const intf_hrpwm_cfg_t *cfg)
+static const intf_hrpwm_t *hrpwm_get_ops_by_ch(intf_hrpwm_ch_t ch)
 {
-    if (hrpwm_ops && hrpwm_ops->init) return hrpwm_ops->init(ch, cfg);
+    uint8_t inst = ch / 4;
+    if (inst >= HRPWM_INSTANCE_COUNT) return NULL;
+    return hrpwm_ops[inst];
+}
+
+int intf_hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
+{
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->init_pair) return ops->init_pair(ch, cfg);
     return -1;
 }
 
 int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty)
 {
-    if (hrpwm_ops && hrpwm_ops->set_duty) return hrpwm_ops->set_duty(ch, duty);
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->set_duty) return ops->set_duty(ch, duty);
     return -1;
 }
 
-int intf_hrpwm_set_frequency(intf_hrpwm_ch_t ch, uint32_t frequency_hz)
+int intf_hrpwm_set_frequency(intf_hrpwm_inst_t inst, uint32_t frequency_hz)
 {
-    if (hrpwm_ops && hrpwm_ops->set_frequency) return hrpwm_ops->set_frequency(ch, frequency_hz);
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->set_frequency) return hrpwm_ops[inst]->set_frequency(frequency_hz);
+    return -1;
+}
+
+int intf_hrpwm_set_jitter(intf_hrpwm_ch_t ch, uint8_t jitter_cmp)
+{
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->set_jitter) return ops->set_jitter(ch, jitter_cmp);
     return -1;
 }
 
 int intf_hrpwm_start(intf_hrpwm_ch_t ch)
 {
-    if (hrpwm_ops && hrpwm_ops->start) return hrpwm_ops->start(ch);
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->start) return ops->start(ch);
     return -1;
 }
 
 int intf_hrpwm_stop(intf_hrpwm_ch_t ch)
 {
-    if (hrpwm_ops && hrpwm_ops->stop) return hrpwm_ops->stop(ch);
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->stop) return ops->stop(ch);
+    return -1;
+}
+
+int intf_hrpwm_force_low(intf_hrpwm_ch_t ch)
+{
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->force_low) return ops->force_low(ch);
+    return -1;
+}
+
+int intf_hrpwm_force_release(intf_hrpwm_ch_t ch)
+{
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->force_release) return ops->force_release(ch);
+    return -1;
+}
+
+int intf_hrpwm_config_fault(intf_hrpwm_inst_t inst, const intf_hrpwm_fault_cfg_t *cfg)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->config_fault) return hrpwm_ops[inst]->config_fault(cfg);
+    return -1;
+}
+
+int intf_hrpwm_clear_fault(intf_hrpwm_inst_t inst)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->clear_fault) return hrpwm_ops[inst]->clear_fault();
     return -1;
 }
 

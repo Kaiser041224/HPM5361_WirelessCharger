@@ -1,5 +1,5 @@
 /*
- * HRPWM Interface - hardware-independent contract
+ * HRPWM Interface - High-Performance PWM hardware-independent contract
  *
  * Copyright (c) 2026 HPMicro
  * SPDX-License-Identifier: BSD-3-Clause
@@ -15,31 +15,75 @@
 extern "C" {
 #endif
 
+typedef uint8_t intf_hrpwm_inst_t;
 typedef uint8_t intf_hrpwm_ch_t;
+
+typedef enum {
+    INTF_HRPWM_FAULT_SRC_INTERNAL_0 = 0,
+    INTF_HRPWM_FAULT_SRC_INTERNAL_1,
+    INTF_HRPWM_FAULT_SRC_INTERNAL_2,
+    INTF_HRPWM_FAULT_SRC_INTERNAL_3,
+    INTF_HRPWM_FAULT_SRC_EXTERNAL_0,
+    INTF_HRPWM_FAULT_SRC_EXTERNAL_1,
+    INTF_HRPWM_FAULT_SRC_DEBUG,
+} intf_hrpwm_fault_src_t;
+
+typedef enum {
+    INTF_HRPWM_FAULT_MODE_FORCE_LOW = 0,
+    INTF_HRPWM_FAULT_MODE_FORCE_HIGH,
+    INTF_HRPWM_FAULT_MODE_HIGH_Z,
+} intf_hrpwm_fault_mode_t;
+
+typedef enum {
+    INTF_HRPWM_FAULT_RECOVERY_IMMEDIATELY = 0,
+    INTF_HRPWM_FAULT_RECOVERY_ON_RELOAD,
+    INTF_HRPWM_FAULT_RECOVERY_ON_HW_EVENT,
+    INTF_HRPWM_FAULT_RECOVERY_ON_FAULT_CLEAR,
+} intf_hrpwm_fault_recovery_t;
 
 typedef struct {
     uint32_t frequency_hz;
     float duty;
-    bool invert_output;
-} intf_hrpwm_cfg_t;
+    uint32_t deadtime_ns;
+    uint8_t jitter_cmp;
+    bool invert_high_side;
+    bool invert_low_side;
+} intf_hrpwm_pair_cfg_t;
+
+typedef struct {
+    intf_hrpwm_fault_src_t source;
+    intf_hrpwm_fault_mode_t mode;
+    intf_hrpwm_fault_recovery_t recovery;
+    bool active_low;
+} intf_hrpwm_fault_cfg_t;
 
 typedef struct {
     uint8_t instance_id;
     struct {
-        int (*init)(intf_hrpwm_ch_t ch, const intf_hrpwm_cfg_t *cfg);
+        int (*init_pair)(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg);
         int (*set_duty)(intf_hrpwm_ch_t ch, float duty);
-        int (*set_frequency)(intf_hrpwm_ch_t ch, uint32_t frequency_hz);
+        int (*set_frequency)(uint32_t frequency_hz);
+        int (*set_jitter)(intf_hrpwm_ch_t ch, uint8_t jitter_cmp);
         int (*start)(intf_hrpwm_ch_t ch);
         int (*stop)(intf_hrpwm_ch_t ch);
+        int (*force_low)(intf_hrpwm_ch_t ch);
+        int (*force_release)(intf_hrpwm_ch_t ch);
+        int (*config_fault)(const intf_hrpwm_fault_cfg_t *cfg);
+        int (*clear_fault)(void);
     };
 } intf_hrpwm_t;
 
 int intf_hrpwm_register(const intf_hrpwm_t *ops);
-int intf_hrpwm_init(intf_hrpwm_ch_t ch, const intf_hrpwm_cfg_t *cfg);
+int intf_hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg);
 int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty);
-int intf_hrpwm_set_frequency(intf_hrpwm_ch_t ch, uint32_t frequency_hz);
+int intf_hrpwm_set_frequency(intf_hrpwm_inst_t inst, uint32_t frequency_hz);
+int intf_hrpwm_set_jitter(intf_hrpwm_ch_t ch, uint8_t jitter_cmp);
 int intf_hrpwm_start(intf_hrpwm_ch_t ch);
 int intf_hrpwm_stop(intf_hrpwm_ch_t ch);
+int intf_hrpwm_force_low(intf_hrpwm_ch_t ch);
+int intf_hrpwm_force_release(intf_hrpwm_ch_t ch);
+int intf_hrpwm_config_fault(intf_hrpwm_inst_t inst, const intf_hrpwm_fault_cfg_t *cfg);
+int intf_hrpwm_clear_fault(intf_hrpwm_inst_t inst);
 
 #ifdef __cplusplus
 }

@@ -18,8 +18,11 @@
 #include "hpm_gpio_drv.h"
 #include "hpm_gpiom_drv.h"
 
-void init_jtag_pins(void)
-{
+#define HRPWM_PAD_CTL                                                                    \
+    (IOC_PAD_PAD_CTL_SR_SET(1) | IOC_PAD_PAD_CTL_SPD_SET(3) | IOC_PAD_PAD_CTL_DS_SET(7) \
+     | IOC_PAD_PAD_CTL_OD_SET(0) | IOC_PAD_PAD_CTL_KE_SET(0) | IOC_PAD_PAD_CTL_PE_SET(0))
+
+void init_jtag_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PA06].FUNC_CTL = IOC_PA06_FUNC_CTL_JTAG_TCK;
 
     HPM_IOC->PAD[IOC_PAD_PA05].FUNC_CTL = IOC_PA05_FUNC_CTL_JTAG_TDI;
@@ -29,37 +32,41 @@ void init_jtag_pins(void)
     HPM_IOC->PAD[IOC_PAD_PA07].FUNC_CTL = IOC_PA07_FUNC_CTL_JTAG_TMS;
 }
 
-void init_mcan0_pins(void)
-{
+void init_mcan0_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PA01].FUNC_CTL = IOC_PA01_FUNC_CTL_MCAN0_RXD;
 
     HPM_IOC->PAD[IOC_PAD_PA00].FUNC_CTL = IOC_PA00_FUNC_CTL_MCAN0_TXD;
 }
 
-void init_pwm0_pins(void)
-{
+void init_pwm0_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PA24].FUNC_CTL = IOC_PA24_FUNC_CTL_PWM0_P_0;
+    HPM_IOC->PAD[IOC_PAD_PA24].PAD_CTL = HRPWM_PAD_CTL;
 
     HPM_IOC->PAD[IOC_PAD_PA25].FUNC_CTL = IOC_PA25_FUNC_CTL_PWM0_P_1;
+    HPM_IOC->PAD[IOC_PAD_PA25].PAD_CTL = HRPWM_PAD_CTL;
 
     HPM_IOC->PAD[IOC_PAD_PA26].FUNC_CTL = IOC_PA26_FUNC_CTL_PWM0_P_2;
+    HPM_IOC->PAD[IOC_PAD_PA26].PAD_CTL = HRPWM_PAD_CTL;
 
     HPM_IOC->PAD[IOC_PAD_PA27].FUNC_CTL = IOC_PA27_FUNC_CTL_PWM0_P_3;
+    HPM_IOC->PAD[IOC_PAD_PA27].PAD_CTL = HRPWM_PAD_CTL;
 }
 
-void init_pwm1_pins(void)
-{
+void init_pwm1_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PA28].FUNC_CTL = IOC_PA28_FUNC_CTL_PWM1_P_4;
+    HPM_IOC->PAD[IOC_PAD_PA28].PAD_CTL = HRPWM_PAD_CTL;
 
     HPM_IOC->PAD[IOC_PAD_PA29].FUNC_CTL = IOC_PA29_FUNC_CTL_PWM1_P_5;
+    HPM_IOC->PAD[IOC_PAD_PA29].PAD_CTL = HRPWM_PAD_CTL;
 
     HPM_IOC->PAD[IOC_PAD_PA30].FUNC_CTL = IOC_PA30_FUNC_CTL_PWM1_P_6;
+    HPM_IOC->PAD[IOC_PAD_PA30].PAD_CTL = HRPWM_PAD_CTL;
 
     HPM_IOC->PAD[IOC_PAD_PA31].FUNC_CTL = IOC_PA31_FUNC_CTL_PWM1_P_7;
+    HPM_IOC->PAD[IOC_PAD_PA31].PAD_CTL = HRPWM_PAD_CTL;
 }
 
-void init_analog_pins(void)
-{
+void init_analog_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PB08].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
 
     HPM_IOC->PAD[IOC_PAD_PB10].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
@@ -73,8 +80,7 @@ void init_analog_pins(void)
     HPM_IOC->PAD[IOC_PAD_PB14].FUNC_CTL = IOC_PAD_FUNC_CTL_ANALOG_MASK;
 }
 
-void init_gptmr0_pins(void)
-{
+void init_gptmr0_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PA10].FUNC_CTL = IOC_PA10_FUNC_CTL_GPTMR0_COMP_2;
 
     HPM_IOC->PAD[IOC_PAD_PB09].FUNC_CTL = IOC_PB09_FUNC_CTL_GPTMR0_CAPT_1;
@@ -82,8 +88,7 @@ void init_gptmr0_pins(void)
     HPM_IOC->PAD[IOC_PAD_PB15].FUNC_CTL = IOC_PB15_FUNC_CTL_GPTMR0_COMP_3;
 }
 
-void init_uart0_pins(void)
-{
+void init_uart0_pins(void) {
     HPM_IOC->PAD[IOC_PAD_PY01].FUNC_CTL = IOC_PY01_FUNC_CTL_UART0_RXD;
     HPM_PIOC->PAD[IOC_PAD_PY01].FUNC_CTL = PIOC_PY01_FUNC_CTL_SOC_GPIO_Y_01;
 
@@ -91,8 +96,7 @@ void init_uart0_pins(void)
     HPM_PIOC->PAD[IOC_PAD_PY00].FUNC_CTL = PIOC_PY00_FUNC_CTL_SOC_GPIO_Y_00;
 }
 
-void init_gpio_pins(void)
-{
+void init_gpio_pins(void) {
     /* PA08: GPIO output with strong pull-up (keep high for JTAG TRST) */
     HPM_IOC->PAD[IOC_PAD_PA08].FUNC_CTL = IOC_PA08_FUNC_CTL_GPIO_A_08;
     HPM_IOC->PAD[IOC_PAD_PA08].PAD_CTL = IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(1);
@@ -102,7 +106,8 @@ void init_gpio_pins(void)
 
     /* PA09: Button input, falling edge interrupt, hysteresis, pull-up */
     HPM_IOC->PAD[IOC_PAD_PA09].FUNC_CTL = IOC_PA09_FUNC_CTL_GPIO_A_09;
-    HPM_IOC->PAD[IOC_PAD_PA09].PAD_CTL = IOC_PAD_PAD_CTL_HYS_SET(1) | IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(1);
+    HPM_IOC->PAD[IOC_PAD_PA09].PAD_CTL =
+        IOC_PAD_PAD_CTL_HYS_SET(1) | IOC_PAD_PAD_CTL_PE_SET(1) | IOC_PAD_PAD_CTL_PS_SET(1);
     gpiom_set_pin_controller(HPM_GPIOM, GPIOM_ASSIGN_GPIOA, 9, gpiom_soc_gpio0);
     gpio_set_pin_input(HPM_GPIO0, GPIO_OE_GPIOA, 9);
 
@@ -121,8 +126,7 @@ void init_gpio_pins(void)
     gpio_write_pin(HPM_GPIO0, GPIO_DO_GPIOA, 3, 0);
 }
 
-void init_pins(void)
-{
+void init_pins(void) {
     init_jtag_pins();
     init_mcan0_pins();
     init_pwm0_pins();
@@ -133,8 +137,7 @@ void init_pins(void)
     init_gpio_pins();
 }
 
-void init_uart_pins(UART_Type *ptr)
-{
+void init_uart_pins(UART_Type* ptr) {
     if (ptr == HPM_UART0) {
         init_uart0_pins();
     }

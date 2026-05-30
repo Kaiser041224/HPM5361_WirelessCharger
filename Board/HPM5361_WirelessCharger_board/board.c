@@ -6,6 +6,8 @@
 
 #include "board.h"
 #include "pinmux.h"
+#include "hpm_clock_drv.h"
+#include "hpm_usb_drv.h"
 
 /**
  * @brief FLASH configuration option definitions:
@@ -68,8 +70,21 @@ __attribute__ ((section(".nor_cfg_option"), used)) const uint32_t option[4] = {0
 ATTR_PLACE_AT(".uf2_signature") __attribute__((used)) const uint32_t uf2_signature = BOARD_UF2_SIGNATURE;
 #endif
 
+static void board_disable_usb_phy_dp_dm_pulldown(void)
+{
+    if (!clock_check_in_group(clock_usb0, 0)) {
+        clock_add_to_group(clock_usb0, 0);
+    }
+    usb_phy_disable_dp_dm_pulldown(HPM_USB0);
+    clock_remove_from_group(clock_usb0, 0);
+    while (sysctl_resource_target_is_busy(HPM_SYSCTL, sysctl_resource_usb0)) {
+        ;
+    }
+}
+
 void board_init(void)
 {
+    board_disable_usb_phy_dp_dm_pulldown();
     init_pins();
 }
 

@@ -69,21 +69,22 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 
 ### 2.3 HRPWM 驱动 (`Driver/hpm_impl/drv_hrpwm.c`)
 
-> **注意**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API，命名保留为 `hrpwm` 用于接口演进。
+> **注意**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0/1` API，命名保留为 `hrpwm` 用于接口演进。
 
 - [x] `intf_hrpwm.h` 接口定义 - 匿名结构体 ops、float duty [0.0-1.0]（符合 AGENTS.md 规范）
-- [x] `drv_hrpwm.c` 驱动实现 - 映射到 HPM_PWM0，165 行完整实现
-- [x] `intf_default.c` 注册分发 - `hrpwm_ops` 指针保存与分发
-- [x] 边沿对齐 PWM 输出（ch0..3，PA24-PA27 → PWM0_P_0..3）
+- [x] `drv_hrpwm.c` 驱动实现 - 支持 PWM0/PWM1 双实例，互补输出，高级功能
+- [x] `intf_default.c` 注册分发 - 支持双实例注册，按通道自动分发
+- [x] 互补输出 pair 模式（使用 `pwm_setup_waveform_in_pair`）
+- [x] deadtime 配置（纳秒级配置，驱动自动转换为时钟周期数）
+- [x] fault source / fault recovery 配置（支持内部/外部 fault，多种恢复策略）
+- [x] force-safe-low / brake API（`force_low`/`force_release` 强制输出）
+- [x] 双 PWM 实例支持（PWM0 ch0-3，PWM1 ch4-7）
 - [x] 频率/占空比动态调整（实例级频率共享，改频后重新应用所有通道 duty）
 - [x] 启停控制（`stop` 只关闭单通道输出，不停全局 counter）
 - [x] NaN duty 防护（`duty == duty` 检测 NaN）
 - [x] 通道范围校验（`ch < HRPWM_CHANNEL_COUNT`）
 - [x] 时钟配置（`clock_mot0`，`clock_add_to_group` 使能）
-- [ ] fault source / fault recovery 配置
-- [ ] deadtime 配置（当前固定为 0）
-- [ ] 互补输出 pair 模式（需使用 `pwm_setup_waveform_in_pair`）
-- [ ] force-safe-low / brake API（参考 GPWM 的 `force_low`/`force_release`）
+- [x] 抖动技术集成（`jitter_cmp` 配置，提高 DPWM 有效分辨率）
 - [ ] shadow register 同步更新策略优化
 
 ### 2.4 GPWM 驱动 (`Driver/hpm_impl/drv_gpwm.c`)
@@ -289,24 +290,24 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 ## 7. 优先级排序
 
 **P0 - 立即**：
-1. 按键中断触发问题排查
-2. PWM 驱动实现（充电核心）
-3. ADC 驱动实现（采样核心）
+1. ✅ HRPWM 驱动实现（充电核心）- 已完成双实例互补输出、deadtime、fault保护、抖动技术
+2. ❌ 按键中断触发问题排查
+3. ❌ ADC 驱动实现（采样核心）
 
 **P1 - 短期**：
-1. 充电状态机框架
-2. 接口层匿名结构体重构
-3. platform_defs.h 创建
-4. 保护逻辑实现
+1. ❌ 充电状态机框架
+2. ❌ 接口层匿名结构体重构（PWM、ADC、UART、SPI、I2C）
+3. ❌ platform_defs.h 创建
+4. ❌ 保护逻辑实现
 
 **P2 - 中期**：
-1. Module 层创建
-2. C17 特性应用
-3. 性能优化（ILM/Cache）
+1. ❌ Module 层创建
+2. ❌ C17 特性应用
+3. ❌ 性能优化（ILM/Cache）
 
 **P3 - 长期**：
-1. 单元测试
-2. 硬件在环测试（HIL）
+1. ❌ 单元测试
+2. ❌ 硬件在环测试（HIL）
 
 ---
 
@@ -318,9 +319,13 @@ HPM5361_WirelessCharger/
 │   ├── main.c
 │   └── Logic/
 │       ├── Inc/
-│       │   └── app_gpio.h
+│       │   ├── app_gpio.h
+│       │   ├── app_buzzer.h
+│       │   └── app_ws2812.h
 │       ├── Src/
-│       │   └── app_gpio.c
+│       │   ├── app_gpio.c
+│       │   ├── app_buzzer.c
+│       │   └── app_ws2812.c
 │       └── app_logic.c
 ├── Board/
 │   ├── HPM5361_WirelessCharger_board/
@@ -330,26 +335,34 @@ HPM5361_WirelessCharger/
 │   │   └── pinmux.h
 │   └── hpm5301evklite_board/
 ├── Driver/
-│   └── hpm_impl/
-│       ├── drv_clock.c
-│       ├── drv_gpio.c
-│       ├── drv_pwm.c      (TODO)
-│       ├── drv_adc.c      (TODO)
-│       ├── drv_uart.c     (TODO)
-│       ├── drv_spi.c      (TODO)
-│       └── drv_i2c.c      (TODO)
+│   ├── hpm_impl/
+│   │   ├── drv_clock.c
+│   │   ├── drv_gpio.c
+│   │   ├── drv_hrpwm.c     ✅ 完成 - 双实例互补输出、deadtime、fault保护
+│   │   ├── drv_gpwm.c
+│   │   ├── drv_ws2812.c
+│   │   ├── drv_adc.c      (TODO)
+│   │   ├── drv_uart.c     (TODO)
+│   │   ├── drv_spi.c      (TODO)
+│   │   └── drv_i2c.c      (TODO)
+│   └── WS2812/
+│       └── WS2812.c
 ├── Interface/
 │   ├── intf_clock.h
 │   ├── intf_gpio.h
+│   ├── intf_hrpwm.h       ✅ 完成 - 双实例、互补输出、deadtime、fault接口
+│   ├── intf_gpwm.h
+│   ├── intf_ws2812.h
 │   ├── intf_pwm.h         (TODO)
 │   ├── intf_adc.h         (TODO)
 │   ├── intf_uart.h        (TODO)
 │   ├── intf_spi.h         (TODO)
 │   ├── intf_i2c.h         (TODO)
-│   └── intf_default.c
+│   └── intf_default.c     ✅ 完成 - 支持双实例HRPWM注册分发
 ├── linkers/
 ├── doc/
-│   └── todo.md
+│   ├── todo.md
+│   └── hrpwm_driver_design.md  ✅ 完成 - 包含新接口设计和使用示例
 ├── CMakeLists.txt
 └── Makefile
 ```
