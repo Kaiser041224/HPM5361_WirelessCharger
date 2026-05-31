@@ -10,6 +10,8 @@
 #include "board.h"
 #include "hpm_clock_drv.h"
 #include "hpm_pwm_drv.h"
+#include "hpm_interrupt.h"
+#include "hpm_soc_irq.h"
 
 #include <assert.h>
 #include <stddef.h>
@@ -604,6 +606,97 @@ static int hrpwm_clear_fault(void)
     return 0;
 }
 
+/* 中断回调函数指针数组 */
+static intf_hrpwm_irq_callback_t hrpwm_reload_callback[HRPWM_INSTANCE_COUNT] = {NULL};
+
+/* PWM0中断处理函数 */
+#if defined(IRQn_PWM0)
+SDK_DECLARE_EXT_ISR_M(IRQn_PWM0, isr_pwm0)
+void isr_pwm0(void)
+{
+    uint32_t status = pwm_get_status(BOARD_APP_HRPWM0);
+    pwm_clear_status(BOARD_APP_HRPWM0, status);
+
+    if ((status & PWM_IRQ_RELOAD) && (hrpwm_reload_callback[0] != NULL)) {
+        hrpwm_reload_callback[0]();
+    }
+}
+#endif
+
+/* PWM1中断处理函数 */
+#if defined(IRQn_PWM1)
+SDK_DECLARE_EXT_ISR_M(IRQn_PWM1, isr_pwm1)
+void isr_pwm1(void)
+{
+    uint32_t status = pwm_get_status(BOARD_APP_HRPWM1);
+    pwm_clear_status(BOARD_APP_HRPWM1, status);
+
+    if ((status & PWM_IRQ_RELOAD) && (hrpwm_reload_callback[1] != NULL)) {
+        hrpwm_reload_callback[1]();
+    }
+}
+#endif
+
+/* PWM0中断配置函数 */
+static int hrpwm_config_reload_irq_pwm0(intf_hrpwm_irq_callback_t callback)
+{
+    hrpwm_reload_callback[0] = callback;
+    return 0;
+}
+
+static int hrpwm_enable_reload_irq_pwm0(void)
+{
+    PWM_Type *base = hrpwm_get_base(0);
+    if (base == NULL) {
+        return -1;
+    }
+
+    pwm_enable_irq(base, PWM_IRQ_RELOAD);
+    intc_m_enable_irq_with_priority(IRQn_PWM0, 1);
+    return 0;
+}
+
+static int hrpwm_disable_reload_irq_pwm0(void)
+{
+    PWM_Type *base = hrpwm_get_base(0);
+    if (base == NULL) {
+        return -1;
+    }
+
+    pwm_disable_irq(base, PWM_IRQ_RELOAD);
+    return 0;
+}
+
+/* PWM1中断配置函数 */
+static int hrpwm_config_reload_irq_pwm1(intf_hrpwm_irq_callback_t callback)
+{
+    hrpwm_reload_callback[1] = callback;
+    return 0;
+}
+
+static int hrpwm_enable_reload_irq_pwm1(void)
+{
+    PWM_Type *base = hrpwm_get_base(1);
+    if (base == NULL) {
+        return -1;
+    }
+
+    pwm_enable_irq(base, PWM_IRQ_RELOAD);
+    intc_m_enable_irq_with_priority(IRQn_PWM1, 1);
+    return 0;
+}
+
+static int hrpwm_disable_reload_irq_pwm1(void)
+{
+    PWM_Type *base = hrpwm_get_base(1);
+    if (base == NULL) {
+        return -1;
+    }
+
+    pwm_disable_irq(base, PWM_IRQ_RELOAD);
+    return 0;
+}
+
 static const intf_hrpwm_t hrpwm_ops_pwm0 = {
     .instance_id = 0,
     .init_pair = hrpwm_init_pair,
@@ -616,6 +709,9 @@ static const intf_hrpwm_t hrpwm_ops_pwm0 = {
     .force_release = hrpwm_force_release,
     .config_fault = hrpwm_config_fault,
     .clear_fault = hrpwm_clear_fault,
+    .config_reload_irq = hrpwm_config_reload_irq_pwm0,
+    .enable_reload_irq = hrpwm_enable_reload_irq_pwm0,
+    .disable_reload_irq = hrpwm_disable_reload_irq_pwm0,
 };
 
 static const intf_hrpwm_t hrpwm_ops_pwm1 = {
@@ -630,6 +726,9 @@ static const intf_hrpwm_t hrpwm_ops_pwm1 = {
     .force_release = hrpwm_force_release,
     .config_fault = hrpwm_config_fault,
     .clear_fault = hrpwm_clear_fault,
+    .config_reload_irq = hrpwm_config_reload_irq_pwm1,
+    .enable_reload_irq = hrpwm_enable_reload_irq_pwm1,
+    .disable_reload_irq = hrpwm_disable_reload_irq_pwm1,
 };
 
 void hpm_hrpwm_driver_register(void)

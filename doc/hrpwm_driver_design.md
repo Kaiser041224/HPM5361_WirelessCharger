@@ -628,7 +628,74 @@ static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float dut
 
 ---
 
-## 11. 开发检查清单
+## 11. PWM中断机制
+
+### 11.1 中断源
+
+HPM5361 PWM支持以下中断源：
+
+| 中断源 | 宏定义 | 触发时机 | 用途 |
+|--------|--------|----------|------|
+| **RELOAD** | `PWM_IRQ_RELOAD` | Counter到达Reload值 | 中心对齐模式中心点 |
+| **HALF_RELOAD** | `PWM_IRQ_HALF_RELOAD` | Counter到达Reload/2 | 半周期点 |
+| **CMP(x)** | `PWM_IRQ_CMP(x)` | Compare Match | 自定义比较点 |
+| **FAULT** | `PWM_IRQ_FAULT` | 故障触发 | 保护响应 |
+
+### 11.2 中心对齐模式中断时序
+
+```
+Counter:  0 ──→ Reload ──→ 0 ──→ Reload ──→ 0
+               ↑              ↑
+          PWM_IRQ_RELOAD 触发点
+          (中心对齐的"中心点")
+```
+
+### 11.3 接口定义
+
+```c
+/* intf_hrpwm.h */
+typedef void (*intf_hrpwm_irq_callback_t)(void);
+
+int intf_hrpwm_config_reload_irq(intf_hrpwm_inst_t inst, intf_hrpwm_irq_callback_t callback);
+int intf_hrpwm_enable_reload_irq(intf_hrpwm_inst_t inst);
+int intf_hrpwm_disable_reload_irq(intf_hrpwm_inst_t inst);
+```
+
+### 11.4 使用示例
+
+```c
+/* 业务回调函数 */
+static void my_control_loop(void)
+{
+    /* ADC采样、PID计算、更新占空比 */
+}
+
+/* 初始化 */
+intf_hrpwm_config_reload_irq(0, my_control_loop);  /* 注册回调 */
+intf_hrpwm_enable_reload_irq(0);                    /* 使能中断 */
+```
+
+### 11.5 调试接口
+
+```c
+/* app_debug_rtt.h */
+void app_debug_pwm_irq_enable(uint8_t inst);
+void app_debug_pwm_irq_disable(uint8_t inst);
+uint32_t app_debug_pwm_irq_get_count(uint8_t inst);
+void app_debug_pwm_irq_dump_status(void);
+int app_debug_pwm_irq_register_callback(uint8_t inst, pwm_irq_user_callback_t callback);
+```
+
+### 11.6 验证结果
+
+| PWM实例 | 频率 | 1秒中断计数 | 状态 |
+|---------|------|-------------|------|
+| PWM0 | 200kHz | ~200,422 | ✓ |
+| PWM1 | 148kHz | ~148,311 | ✓ |
+
+---
+
+## 12. 开发检查清单
 
 开发 HRPWM 驱动新功能时，请按以下清单检查：
 

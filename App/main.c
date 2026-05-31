@@ -24,8 +24,15 @@ int main(void) {
     app_debug_write("[RTT] PWM center-aligned output active on PA24-PA31\r\n");
     app_debug_write("[RTT] Duty sweep: 0.0 -> 1.0 -> 0.0 (step=0.001, delay=4ms)\r\n");
 
+    /* 使能PWM0和PWM1中心点中断 */
+    app_debug_write("[RTT] Enabling PWM0 & PWM1 center IRQ...\r\n");
+    app_debug_pwm_irq_enable(0);
+    app_debug_pwm_irq_enable(1);
+
     const float duty_step = 0.001f;
     const uint32_t sweep_delay_ms = 4;
+    const uint32_t irq_dump_interval_ms = 1000;
+    uint32_t irq_dump_timer = 0;
     float duty = 0.0f;
     bool rising = true;
 
@@ -49,6 +56,13 @@ int main(void) {
         }
 
         intf_clock_delay_ms(sweep_delay_ms);
+
+        /* 定期打印中断计数 */
+        irq_dump_timer += sweep_delay_ms;
+        if (irq_dump_timer >= irq_dump_interval_ms) {
+            irq_dump_timer = 0;
+            app_debug_pwm_irq_dump_status();
+        }
     }
 
     return 0;

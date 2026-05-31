@@ -18,6 +18,9 @@ extern "C" {
 typedef uint8_t intf_hrpwm_inst_t;
 typedef uint8_t intf_hrpwm_ch_t;
 
+/* PWM中断回调函数类型 */
+typedef void (*intf_hrpwm_irq_callback_t)(void);
+
 typedef enum {
     INTF_HRPWM_FAULT_SRC_INTERNAL_0 = 0,
     INTF_HRPWM_FAULT_SRC_INTERNAL_1,
@@ -76,6 +79,9 @@ typedef struct {
         int (*force_release)(intf_hrpwm_ch_t ch);
         int (*config_fault)(const intf_hrpwm_fault_cfg_t *cfg);
         int (*clear_fault)(void);
+        int (*config_reload_irq)(intf_hrpwm_irq_callback_t callback);
+        int (*enable_reload_irq)(void);
+        int (*disable_reload_irq)(void);
     };
 } intf_hrpwm_t;
 
@@ -90,6 +96,11 @@ int intf_hrpwm_force_low(intf_hrpwm_ch_t ch);
 int intf_hrpwm_force_release(intf_hrpwm_ch_t ch);
 int intf_hrpwm_config_fault(intf_hrpwm_inst_t inst, const intf_hrpwm_fault_cfg_t *cfg);
 int intf_hrpwm_clear_fault(intf_hrpwm_inst_t inst);
+
+/* 中断配置接口 */
+int intf_hrpwm_config_reload_irq(intf_hrpwm_inst_t inst, intf_hrpwm_irq_callback_t callback);
+int intf_hrpwm_enable_reload_irq(intf_hrpwm_inst_t inst);
+int intf_hrpwm_disable_reload_irq(intf_hrpwm_inst_t inst);
 
 #ifdef __cplusplus
 }

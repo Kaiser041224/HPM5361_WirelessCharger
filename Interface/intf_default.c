@@ -145,6 +145,27 @@ int intf_hrpwm_clear_fault(intf_hrpwm_inst_t inst)
     return -1;
 }
 
+int intf_hrpwm_config_reload_irq(intf_hrpwm_inst_t inst, intf_hrpwm_irq_callback_t callback)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->config_reload_irq) return hrpwm_ops[inst]->config_reload_irq(callback);
+    return -1;
+}
+
+int intf_hrpwm_enable_reload_irq(intf_hrpwm_inst_t inst)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->enable_reload_irq) return hrpwm_ops[inst]->enable_reload_irq();
+    return -1;
+}
+
+int intf_hrpwm_disable_reload_irq(intf_hrpwm_inst_t inst)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->disable_reload_irq) return hrpwm_ops[inst]->disable_reload_irq();
+    return -1;
+}
+
 /* ============================================================================
  * GPWM Interface
  * ============================================================================ */
