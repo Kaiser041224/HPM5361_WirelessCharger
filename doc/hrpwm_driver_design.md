@@ -546,7 +546,89 @@ intf_hrpwm_set_jitter(0, 16);   // ch0 抖动值改为 16
 
 ---
 
-## 10. 开发检查清单
+## 10. 已知问题与解决方案
+
+### 10.1 100%占空比窄脉冲问题 (已修复)
+
+**问题现象**：
+- 当占空比从0%逐渐增加到100%时，在接近100%时会出现极窄的反向脉冲
+- 表现为大部分周期保持高电平，但周期中出现极短暂的低电平（针尖状脉冲）
+- 示波器可观测到1个时钟周期宽度的低电平脉冲
+
+**根因分析**：
+
+原代码中CMP边界处理逻辑错误：
+
+```c
+// 错误代码 (drv_hrpwm.c)
+if (cmp.cmp_begin == 0U) {
+    cmp.cmp_begin = reload + 1U;  // 错误：将0改为reload+1
+}
+```
+
+当duty接近100%时：
+1. `target_cmp ≈ reload`
+2. `cmp_begin = (reload - target_cmp) >> 1 ≈ 0`
+3. 代码将 `cmp_begin = 0` 改为 `reload + 1`
+4. 交换逻辑导致 `cmp_begin = reload`, `cmp_end = reload + 1`
+5. 在中心对齐模式下，Counter到达reload时触发Compare Match
+6. 输出被意外拉低，产生极窄低脉冲
+
+**修复方案**：
+
+```c
+// 修复后代码 (drv_hrpwm.c)
+static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float duty)
+{
+    hrpwm_cmp_pair_t cmp;
+
+    // 100%占空比：CMP设为reload+1（永远不匹配），输出保持高
+    if (duty >= 1.0f) {
+        cmp.cmp_begin = reload + 1U;
+        cmp.cmp_end = reload + 1U;
+        return cmp;
+    }
+
+    // 0%占空比：CMP设为0（立即匹配），输出保持低
+    if (duty <= 0.0f) {
+        cmp.cmp_begin = 0U;
+        cmp.cmp_end = 0U;
+        return cmp;
+    }
+
+    // 正常占空比：确保CMP值至少为1
+    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
+    cmp.cmp_begin = (reload - target_cmp) >> 1;
+    cmp.cmp_end = (reload + target_cmp) >> 1;
+
+    if (cmp.cmp_begin == 0U) {
+        cmp.cmp_begin = 1U;  // 使用1而不是reload+1
+    }
+    if (cmp.cmp_end == 0U) {
+        cmp.cmp_end = 1U;
+    }
+
+    return cmp;
+}
+```
+
+**CMP值对照表**：
+
+| 占空比 | 原CMP值 | 修复后CMP值 | 效果 |
+|--------|---------|-------------|------|
+| 100% | cmp_begin=reload, cmp_end=reload+1 | cmp_begin=reload+1, cmp_end=reload+1 | Counter永远不匹配，输出保持高 |
+| 0% | cmp_begin=reload/2, cmp_end=reload/2 | cmp_begin=0, cmp_end=0 | Counter在0时匹配，输出保持低 |
+| 正常 | cmp_begin可能为0 | cmp_begin至少为1 | 避免与reload边界冲突 |
+
+**注意事项**：
+1. 100%占空比时，CMP值必须大于reload，确保Counter永远不匹配
+2. 0%占空比时，CMP值设为0，Counter在周期开始时立即匹配
+3. 正常占空比时，CMP值不能为0，否则会在Counter=0时产生意外匹配
+4. 此修复同时应用于中心对齐和边沿对齐模式
+
+---
+
+## 11. 开发检查清单
 
 开发 HRPWM 驱动新功能时，请按以下清单检查：
 

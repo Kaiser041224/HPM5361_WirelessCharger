@@ -125,21 +125,44 @@ static uint32_t hrpwm_duty_to_cmp_count(uint32_t reload, float duty)
 
 static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float duty)
 {
-    uint32_t cmp_swap;
-    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
-    hrpwm_cmp_pair_t cmp = {
-        .cmp_begin = (reload - target_cmp) >> 1,
-        .cmp_end = (reload + target_cmp) >> 1,
-    };
+    hrpwm_cmp_pair_t cmp;
 
-    if (cmp.cmp_begin == 0U) {
+    /* 100% duty cycle: output stays high permanently.
+     * Set both CMP values beyond reload so Counter never matches.
+     * In center-aligned mode, Counter counts 0 -> reload -> 0.
+     * CMP = reload + 1 will never be reached. */
+    if (duty >= 1.0f) {
         cmp.cmp_begin = reload + 1U;
+        cmp.cmp_end = reload + 1U;
+        return cmp;
+    }
+
+    /* 0% duty cycle: output stays low permanently.
+     * Set both CMP values to 0 so Counter matches immediately at zero.
+     * This forces output low for the entire period. */
+    if (duty <= 0.0f) {
+        cmp.cmp_begin = 0U;
+        cmp.cmp_end = 0U;
+        return cmp;
+    }
+
+    /* Normal duty cycle: calculate symmetric compare values */
+    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
+    cmp.cmp_begin = (reload - target_cmp) >> 1;
+    cmp.cmp_end = (reload + target_cmp) >> 1;
+
+    /* Ensure CMP values are not zero to avoid edge case at Counter = 0.
+     * Using 1 instead of 0 prevents unintended Compare Match at period start. */
+    if (cmp.cmp_begin == 0U) {
+        cmp.cmp_begin = 1U;
     }
     if (cmp.cmp_end == 0U) {
-        cmp.cmp_end = reload + 1U;
+        cmp.cmp_end = 1U;
     }
+
+    /* Ensure begin <= end (swap if needed) */
     if (cmp.cmp_begin > cmp.cmp_end) {
-        cmp_swap = cmp.cmp_begin;
+        uint32_t cmp_swap = cmp.cmp_begin;
         cmp.cmp_begin = cmp.cmp_end;
         cmp.cmp_end = cmp_swap;
     }
@@ -149,14 +172,32 @@ static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float dut
 
 static hrpwm_cmp_pair_t hrpwm_calc_edge_aligned_cmp(uint32_t reload, float duty)
 {
-    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
-    hrpwm_cmp_pair_t cmp = {
-        .cmp_begin = reload - target_cmp,
-        .cmp_end = reload,
-    };
+    hrpwm_cmp_pair_t cmp;
 
-    if (cmp.cmp_begin == reload) {
+    /* 100% duty cycle: output stays high permanently.
+     * Set both CMP values beyond reload so Counter never matches. */
+    if (duty >= 1.0f) {
         cmp.cmp_begin = reload + 1U;
+        cmp.cmp_end = reload + 1U;
+        return cmp;
+    }
+
+    /* 0% duty cycle: output stays low permanently.
+     * Set both CMP values to 0 so Counter matches immediately. */
+    if (duty <= 0.0f) {
+        cmp.cmp_begin = 0U;
+        cmp.cmp_end = 0U;
+        return cmp;
+    }
+
+    /* Normal duty cycle */
+    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
+    cmp.cmp_begin = reload - target_cmp;
+    cmp.cmp_end = reload;
+
+    /* Ensure CMP value is not zero to avoid edge case at Counter = 0 */
+    if (cmp.cmp_begin == 0U) {
+        cmp.cmp_begin = 1U;
     }
 
     return cmp;

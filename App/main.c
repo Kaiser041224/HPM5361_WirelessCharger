@@ -22,10 +22,10 @@ int main(void) {
     pwm_init();
     app_debug_dump_hrpwm_cmp();
     app_debug_write("[RTT] PWM center-aligned output active on PA24-PA31\r\n");
-    app_debug_write("[RTT] Duty sweep: 0.0 -> 1.0 -> 0.0 (step=0.001, delay=10ms)\r\n");
+    app_debug_write("[RTT] Duty sweep: 0.0 -> 1.0 -> 0.0 (step=0.001, delay=4ms)\r\n");
 
     const float duty_step = 0.001f;
-    const uint32_t sweep_delay_ms = 10;
+    const uint32_t sweep_delay_ms = 4;
     float duty = 0.0f;
     bool rising = true;
 

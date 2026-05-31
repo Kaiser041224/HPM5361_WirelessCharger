@@ -85,6 +85,7 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 - [x] 通道范围校验（`ch < HRPWM_CHANNEL_COUNT`）
 - [x] 时钟配置（`clock_mot0`，`clock_add_to_group` 使能）
 - [x] 抖动技术集成（`jitter_cmp` 配置，提高 DPWM 有效分辨率）
+- [x] CMP边界处理修复（100%占空比窄脉冲问题，详见 hrpwm_driver_design.md §10.1）
 - [ ] shadow register 同步更新策略优化
 
 ### 2.4 GPWM 驱动 (`Driver/hpm_impl/drv_gpwm.c`)
