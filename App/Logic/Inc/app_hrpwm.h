@@ -5,8 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef APP_HRPWM_EXAMPLE_H
-#define APP_HRPWM_EXAMPLE_H
+#ifndef APP_HRPWM_H
+#define APP_HRPWM_H
 
 #include <stdint.h>
 
@@ -29,7 +29,7 @@ void pwm_force_low(pwm_pair_t pair);
 void pwm_force_release(pwm_pair_t pair);
 void pwm_emergency_stop(void);
 void pwm_resume(void);
-void pwm_config_fault(void);
-void pwm_clear_fault(void);
+void app_pwm_config_fault(void);
+void app_pwm_clear_fault(void);
 
-#endif /* APP_HRPWM_EXAMPLE_H */
+#endif /* APP_HRPWM_H */

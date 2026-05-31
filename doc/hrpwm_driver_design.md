@@ -17,7 +17,7 @@
 | `Interface/` | `intf_hrpwm.h` | 定义纯 C 契约，不暴露 `hpm_*` 类型 |
 | `Interface/` | `intf_default.c` | 接口注册/分发实现，保存 ops 指针 |
 | `Driver/hpm_impl/` | `drv_hrpwm.c` | 将接口调用映射到 HPM SDK PWM API |
-| `App/` | 暂无 HRPWM app wrapper | 当前阶段不引入 App 调用封装，专注驱动侧 |
+| `App/Logic/` | `app_hrpwm.c/.h` | HRPWM App 封装，提供 pwm_pair_t 面向对象 API，仅通过 Interface 访问 |
 
 当前保留的注册入口：
 
@@ -75,10 +75,17 @@ void hpm_hrpwm_driver_register(void);
 typedef uint8_t intf_hrpwm_inst_t;  // PWM实例ID (0=PWM0, 1=PWM1)
 typedef uint8_t intf_hrpwm_ch_t;    // 通道索引 (0-7, 0-3=PWM0, 4-7=PWM1)
 
+typedef enum {
+    INTF_HRPWM_ALIGN_EDGE = 0,
+    INTF_HRPWM_ALIGN_CENTER,
+} intf_hrpwm_align_t;
+
 typedef struct {
     uint32_t frequency_hz;
     float duty;                     // 归一化占空比 [0.0-1.0]
     uint32_t deadtime_ns;           // 死区时间(ns)
+    uint8_t jitter_cmp;             // 抖动计数器比较值
+    intf_hrpwm_align_t align;       // 对齐模式（边沿/中心）
     bool invert_high_side;          // 高侧输出反相
     bool invert_low_side;           // 低侧输出反相
 } intf_hrpwm_pair_cfg_t;
@@ -96,6 +103,7 @@ typedef struct {
         int (*init_pair)(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg);
         int (*set_duty)(intf_hrpwm_ch_t ch, float duty);
         int (*set_frequency)(uint32_t frequency_hz);
+        int (*set_jitter)(intf_hrpwm_ch_t ch, uint8_t jitter_cmp);
         int (*start)(intf_hrpwm_ch_t ch);
         int (*stop)(intf_hrpwm_ch_t ch);
         int (*force_low)(intf_hrpwm_ch_t ch);
@@ -113,6 +121,7 @@ int intf_hrpwm_register(const intf_hrpwm_t *ops);
 int intf_hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg);
 int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty);
 int intf_hrpwm_set_frequency(intf_hrpwm_inst_t inst, uint32_t frequency_hz);
+int intf_hrpwm_set_jitter(intf_hrpwm_ch_t ch, uint8_t jitter_cmp);
 int intf_hrpwm_start(intf_hrpwm_ch_t ch);
 int intf_hrpwm_stop(intf_hrpwm_ch_t ch);
 int intf_hrpwm_force_low(intf_hrpwm_ch_t ch);
@@ -128,6 +137,8 @@ int intf_hrpwm_clear_fault(intf_hrpwm_inst_t inst);
 | `frequency_hz` | `> 0` 且小于外设时钟 | 驱动会根据外设时钟计算 reload |
 | `duty` | `0.0f <= duty <= 1.0f`，且不能是 NaN | 归一化占空比，驱动层负责转换 |
 | `deadtime_ns` | `>= 0` | 死区时间，驱动会转换为时钟周期数 |
+| `jitter_cmp` | `>= 0` | 抖动计数器比较值，提高 DPWM 有效分辨率 |
+| `align` | `INTF_HRPWM_ALIGN_EDGE` 或 `INTF_HRPWM_ALIGN_CENTER` | PWM 对齐模式 |
 | `ch` | `0..7` | 0-3 对应 PWM0，4-7 对应 PWM1 |
 | `inst` | `0..1` | 0 对应 PWM0，1 对应 PWM1 |
 
@@ -163,6 +174,8 @@ typedef struct {
     bool configured;
     float duty;
     uint32_t reload;
+    uint8_t jitter_cmp;
+    intf_hrpwm_align_t align;
 } hrpwm_channel_state_t;
 
 typedef struct {
@@ -171,6 +184,7 @@ typedef struct {
     uint32_t frequency_hz;
     uint32_t reload;
     bool fault_configured;
+    uint8_t force_mask;
     hrpwm_channel_state_t channels[HRPWM_CHANNELS_PER_INST];
 } hrpwm_instance_state_t;
 
@@ -191,13 +205,15 @@ static hrpwm_instance_state_t hrpwm_instances[HRPWM_INSTANCE_COUNT];
 1. 检查 `cfg != NULL`。
 2. 检查 `ch < HRPWM_CHANNEL_COUNT`。
 3. 检查 `duty` 有效且非 NaN。
-4. 根据 `frequency_hz` 计算 `reload`。
-5. 计算死区周期数：`deadtime_cycles = deadtime_ns / (1000000000 / clock_hz)`。
-6. 调用 `pwm_get_default_pwm_pair_config()` 获取默认配置。
-7. 配置高侧和低侧输出（反相、死区）。
-8. 配置比较器（duty 和 period）。
-9. 调用 `pwm_setup_waveform_in_pair()` 绑定 PWM pair。
-10. 保存通道状态。
+4. 检查 `align` 为合法枚举值。
+5. 根据 `frequency_hz` 计算 `reload`，校验 `reload < HRPWM_RELOAD_MAX_VALUE`（24-bit 位宽）。
+6. 计算死区周期数：`deadtime_cycles = deadtime_ns / (1000000000 / clock_hz)`。
+7. 调用 `pwm_get_default_pwm_pair_config()` 获取默认配置。
+8. 配置高侧和低侧输出（反相、死区）。
+9. 配置比较器初始值和 jitter。
+10. 调用 `pwm_setup_waveform_in_pair()` 绑定 PWM pair。
+11. 保存通道状态（duty、reload、jitter_cmp、align）。
+12. 调用 `hrpwm_apply_duty()` 根据 align 模式计算并写入 compare 值。
 
 ### 5.3 启停策略
 
@@ -225,18 +241,32 @@ pwm_disable_output(base, local_ch);
 - 驱动会遍历已配置通道并重新应用 duty。
 - 频率是实例级的，不是通道级的。
 
-### 5.5 Fault 保护
+### 5.5 Duty 更新与对齐模式
+
+`hrpwm_apply_duty()` 根据 `align` 模式计算两个 compare 值，直接写入 `CMP[start]` / `CMP[start+1]`：
+
+- **中心对齐**：`cmp_begin = (reload - target) >> 1`，`cmp_end = (reload + target) >> 1`
+  - 脉冲在周期内居中，两个边沿对称移动
+- **边沿对齐**：`cmp_begin = reload - target`，`cmp_end = reload`
+  - 脉冲从 reload 处开始，仅一个边沿移动
+
+`hrpwm_set_jitter(ch, jitter_cmp)`：
+
+- 直接更新两个 compare index 的 jitter 字段，不破坏 CMP/XCMP 值。
+- 更新后重新调用 `hrpwm_apply_duty()` 保持 compare 值一致。
+
+### 5.6 Fault 保护
 
 `hrpwm_config_fault(cfg)`：
 
-- 配置 fault source（内部/外部 fault）。
-- 配置 fault mode（强制低/高/高阻）。
-- 配置 fault recovery（立即/reload/硬件事件/软件清除）。
-- 配置 fault 输入极性（active low/high）。
+- 先校验 `mode`、`recovery`、`source` 三个枚举参数，任一非法立即返回 `-1`，不修改任何寄存器。
+- 然后对每个 PWM instance 的每个 channel 写入 `PWMCFG` 的 `FAULTMODE` 和 `FAULTRECTIME` 位（保留其它位）。
+- 最后调用 `pwm_config_fault_source()` 配置 fault source。
 
 `hrpwm_clear_fault()`：
 
-- 清除所有实例的 fault 状态。
+- 调用 SDK `pwm_clear_fault(base)` 清除 fault latch。
+- 再调用 `pwm_clear_status()` 清除状态位。
 
 ### 5.6 Force-low / Force-release
 
@@ -262,7 +292,9 @@ Driver 层提供注册函数：
 ```c
 void hpm_hrpwm_driver_register(void)
 {
+    hrpwm_init_instances();
     intf_hrpwm_register(&hrpwm_ops_pwm0);
+    intf_hrpwm_register(&hrpwm_ops_pwm1);
 }
 ```
 
@@ -295,16 +327,19 @@ static const intf_hrpwm_t *hrpwm_ops[HRPWM_INSTANCE_COUNT] = {NULL};
 - 通道范围检查。
 - 频率为 0 时拒绝初始化/改频。
 - duty 必须在 `[0.0f, 1.0f]` 且不能是 NaN。
+- `align` 枚举合法性校验，非法值返回 `-1`。
+- `reload` 24-bit 位宽校验（`< HRPWM_RELOAD_MAX_VALUE`），防止 compare sentinel 溢出。
+- `static_assert` 编译期校验 compare 资源映射不越界。
 - 初始化阶段默认不使能输出，必须显式调用 `start()`。
 - `hrpwm_stop(ch)` 不停止全局 counter，避免影响其他通道。
 - Fault 保护配置（force low/high/high-z）。
+- Fault config 先完整校验所有枚举参数，再写入寄存器，非法值不会产生部分副作用。
 - Fault recovery 策略（immediately/reload/hw event/fault clear）。
 - 死区时间配置。
 - Force-low / force-release 强制输出。
 
 **当前仍未完成的功率级安全能力**：
 
-- 抖动技术集成（提高 DPWM 分辨率）。
 - ADC 同步采样触发。
 - 相移控制（用于全桥拓扑）。
 
@@ -327,18 +362,16 @@ static const intf_hrpwm_ch_t pair_to_ch[PWM_PAIR_COUNT] = {0, 2, 4, 6};
 static const intf_hrpwm_inst_t pair_to_inst[PWM_PAIR_COUNT] = {0, 0, 1, 1};
 ```
 
-### 8.2 初始化（带抖动）
+### 8.2 初始化（带对齐模式和抖动）
 
 ```c
 void pwm_init(void)
 {
-    hpm_hrpwm_driver_register();
-
     intf_hrpwm_pair_cfg_t cfg[PWM_PAIR_COUNT] = {
-        [PWM_PAIR_0] = { .frequency_hz = 200000, .duty = 0.5f, .deadtime_ns = 500, .jitter_cmp = 4, .invert_high_side = false, .invert_low_side = true },
-        [PWM_PAIR_1] = { .frequency_hz = 200000, .duty = 0.3f, .deadtime_ns = 500, .jitter_cmp = 4, .invert_high_side = false, .invert_low_side = true },
-        [PWM_PAIR_2] = { .frequency_hz = 150000, .duty = 0.5f, .deadtime_ns = 600, .jitter_cmp = 4, .invert_high_side = false, .invert_low_side = true },
-        [PWM_PAIR_3] = { .frequency_hz = 150000, .duty = 0.4f, .deadtime_ns = 600, .jitter_cmp = 4, .invert_high_side = false, .invert_low_side = true },
+        [PWM_PAIR_0] = { .frequency_hz = 200000, .duty = 0.5f, .deadtime_ns = 10, .jitter_cmp = 4, .align = INTF_HRPWM_ALIGN_CENTER, .invert_high_side = false, .invert_low_side = false },
+        [PWM_PAIR_1] = { .frequency_hz = 200000, .duty = 0.3f, .deadtime_ns = 10, .jitter_cmp = 4, .align = INTF_HRPWM_ALIGN_CENTER, .invert_high_side = false, .invert_low_side = false },
+        [PWM_PAIR_2] = { .frequency_hz = 148000, .duty = 0.5f, .deadtime_ns = 25, .jitter_cmp = 4, .align = INTF_HRPWM_ALIGN_CENTER, .invert_high_side = false, .invert_low_side = false },
+        [PWM_PAIR_3] = { .frequency_hz = 148000, .duty = 0.4f, .deadtime_ns = 25, .jitter_cmp = 4, .align = INTF_HRPWM_ALIGN_CENTER, .invert_high_side = false, .invert_low_side = false },
     };
 
     for (pwm_pair_t pair = PWM_PAIR_0; pair < PWM_PAIR_COUNT; pair++) {
@@ -347,6 +380,8 @@ void pwm_init(void)
     }
 }
 ```
+
+注意：`hpm_hrpwm_driver_register()` 在 `main.c` 的启动阶段调用，不在 `pwm_init()` 内部调用，以避免 App 层直接依赖 Driver 符号。
 
 ### 8.3 统一控制接口
 

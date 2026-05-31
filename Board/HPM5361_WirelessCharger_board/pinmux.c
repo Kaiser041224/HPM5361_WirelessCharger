@@ -18,8 +18,8 @@
 #include "hpm_gpio_drv.h"
 #include "hpm_gpiom_drv.h"
 
-#define HRPWM_PAD_CTL                                                                    \
-    (IOC_PAD_PAD_CTL_SR_SET(1) | IOC_PAD_PAD_CTL_SPD_SET(3) | IOC_PAD_PAD_CTL_DS_SET(7) \
+#define HRPWM_PAD_CTL                                                                   \
+    (IOC_PAD_PAD_CTL_SR_SET(1) | IOC_PAD_PAD_CTL_SPD_SET(3) | IOC_PAD_PAD_CTL_DS_SET(3) \
      | IOC_PAD_PAD_CTL_OD_SET(0) | IOC_PAD_PAD_CTL_KE_SET(0) | IOC_PAD_PAD_CTL_PE_SET(0))
 
 void init_jtag_pins(void) {

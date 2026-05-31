@@ -8,53 +8,47 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "intf_hrpwm.h"
+#include "app_hrpwm.h"
 
-typedef enum {
-    PWM_PAIR_0 = 0,
-    PWM_PAIR_1,
-    PWM_PAIR_2,
-    PWM_PAIR_3,
-    PWM_PAIR_COUNT,
-} pwm_pair_t;
+#include "intf_hrpwm.h"
 
 static const intf_hrpwm_ch_t pair_to_ch[PWM_PAIR_COUNT] = {0, 2, 4, 6};
 static const intf_hrpwm_inst_t pair_to_inst[PWM_PAIR_COUNT] = {0, 0, 1, 1};
 
-extern void hpm_hrpwm_driver_register(void);
-
 void pwm_init(void) {
-    hpm_hrpwm_driver_register();
-
     intf_hrpwm_pair_cfg_t cfg[PWM_PAIR_COUNT] = {
         [PWM_PAIR_0] =
             {.frequency_hz = 200000,
                           .duty = 0.5f,
                           .deadtime_ns = 10,
                           .jitter_cmp = 4,
+                          .align = INTF_HRPWM_ALIGN_CENTER,
                           .invert_high_side = false,
-                          .invert_low_side = true},
+                          .invert_low_side = false},
         [PWM_PAIR_1] =
             {.frequency_hz = 200000,
                           .duty = 0.3f,
                           .deadtime_ns = 10,
                           .jitter_cmp = 4,
+                          .align = INTF_HRPWM_ALIGN_CENTER,
                           .invert_high_side = false,
-                          .invert_low_side = true},
+                          .invert_low_side = false},
         [PWM_PAIR_2] =
             {.frequency_hz = 148000,
                           .duty = 0.5f,
                           .deadtime_ns = 25,
                           .jitter_cmp = 4,
+                          .align = INTF_HRPWM_ALIGN_CENTER,
                           .invert_high_side = false,
-                          .invert_low_side = true},
+                          .invert_low_side = false},
         [PWM_PAIR_3] =
             {.frequency_hz = 148000,
                           .duty = 0.4f,
                           .deadtime_ns = 25,
                           .jitter_cmp = 4,
+                          .align = INTF_HRPWM_ALIGN_CENTER,
                           .invert_high_side = false,
-                          .invert_low_side = true},
+                          .invert_low_side = false},
     };
 
     for (pwm_pair_t pair = PWM_PAIR_0; pair < PWM_PAIR_COUNT; pair++) {
@@ -126,7 +120,7 @@ void pwm_resume(void) {
     }
 }
 
-void pwm_config_fault(void) {
+void app_pwm_config_fault(void) {
     intf_hrpwm_fault_cfg_t fault_cfg = {
         .source = INTF_HRPWM_FAULT_SRC_EXTERNAL_0,
         .mode = INTF_HRPWM_FAULT_MODE_FORCE_LOW,
@@ -138,7 +132,7 @@ void pwm_config_fault(void) {
     intf_hrpwm_config_fault(1, &fault_cfg);
 }
 
-void pwm_clear_fault(void) {
+void app_pwm_clear_fault(void) {
     intf_hrpwm_clear_fault(0);
     intf_hrpwm_clear_fault(1);
 }

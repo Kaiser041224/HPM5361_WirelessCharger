@@ -11,6 +11,7 @@
 #include "hpm_clock_drv.h"
 #include "hpm_pwm_drv.h"
 
+#include <assert.h>
 #include <stddef.h>
 
 #define HRPWM_INSTANCE_COUNT    (2U)
@@ -18,6 +19,10 @@
 #define HRPWM_CHANNEL_COUNT     (8U)
 
 #define HRPWM_CMP_START_INDEX(pwm_index) ((uint8_t)((pwm_index) * 2U))
+#define HRPWM_RELOAD_MAX_VALUE          (PWM_RLD_RLD_GET(PWM_RLD_RLD_MASK))
+
+static_assert((HRPWM_CMP_START_INDEX(PWM_SOC_PWM_MAX_COUNT - 1U) + 1U) < PWM_SOC_CMP_MAX_COUNT,
+              "HRPWM compare mapping exceeds PWM compare resource count");
 
 typedef struct {
     intf_hrpwm_ch_t channel;
@@ -31,6 +36,7 @@ typedef struct {
     float duty;
     uint32_t reload;
     uint8_t jitter_cmp;
+    intf_hrpwm_align_t align;
 } hrpwm_channel_state_t;
 
 typedef struct {
@@ -44,6 +50,11 @@ typedef struct {
 } hrpwm_instance_state_t;
 
 static hrpwm_instance_state_t hrpwm_instances[HRPWM_INSTANCE_COUNT];
+
+typedef struct {
+    uint32_t cmp_begin;
+    uint32_t cmp_end;
+} hrpwm_cmp_pair_t;
 
 static const hrpwm_channel_map_t hrpwm_channel_maps[] = {
     {
@@ -102,11 +113,76 @@ static bool hrpwm_is_valid_duty(float duty)
     return (duty == duty) && (duty >= 0.0f) && (duty <= 1.0f);
 }
 
+static bool hrpwm_is_valid_align(intf_hrpwm_align_t align)
+{
+    return (align == INTF_HRPWM_ALIGN_EDGE) || (align == INTF_HRPWM_ALIGN_CENTER);
+}
+
+static uint32_t hrpwm_duty_to_cmp_count(uint32_t reload, float duty)
+{
+    return (uint32_t)((float)reload * duty);
+}
+
+static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float duty)
+{
+    uint32_t cmp_swap;
+    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
+    hrpwm_cmp_pair_t cmp = {
+        .cmp_begin = (reload - target_cmp) >> 1,
+        .cmp_end = (reload + target_cmp) >> 1,
+    };
+
+    if (cmp.cmp_begin == 0U) {
+        cmp.cmp_begin = reload + 1U;
+    }
+    if (cmp.cmp_end == 0U) {
+        cmp.cmp_end = reload + 1U;
+    }
+    if (cmp.cmp_begin > cmp.cmp_end) {
+        cmp_swap = cmp.cmp_begin;
+        cmp.cmp_begin = cmp.cmp_end;
+        cmp.cmp_end = cmp_swap;
+    }
+
+    return cmp;
+}
+
+static hrpwm_cmp_pair_t hrpwm_calc_edge_aligned_cmp(uint32_t reload, float duty)
+{
+    uint32_t target_cmp = hrpwm_duty_to_cmp_count(reload, duty);
+    hrpwm_cmp_pair_t cmp = {
+        .cmp_begin = reload - target_cmp,
+        .cmp_end = reload,
+    };
+
+    if (cmp.cmp_begin == reload) {
+        cmp.cmp_begin = reload + 1U;
+    }
+
+    return cmp;
+}
+
+static hrpwm_cmp_pair_t hrpwm_calc_cmp_pair(uint32_t reload, float duty, intf_hrpwm_align_t align)
+{
+    if (align == INTF_HRPWM_ALIGN_CENTER) {
+        return hrpwm_calc_center_aligned_cmp(reload, duty);
+    }
+
+    return hrpwm_calc_edge_aligned_cmp(reload, duty);
+}
+
+static void hrpwm_write_cmp_pair(PWM_Type *base, uint8_t cmp_start_index, const hrpwm_cmp_pair_t *cmp)
+{
+    pwm_shadow_register_unlock(base);
+    pwm_cmp_update_cmp_value(base, cmp_start_index, cmp->cmp_begin, 0);
+    pwm_cmp_update_cmp_value(base, cmp_start_index + 1U, cmp->cmp_end, 0);
+}
+
 static int hrpwm_apply_duty(const hrpwm_channel_map_t *map)
 {
-    hpm_stat_t status;
     PWM_Type *base;
-    float duty;
+    const hrpwm_channel_state_t *channel;
+    hrpwm_cmp_pair_t cmp;
 
     if (map == NULL) {
         return -1;
@@ -117,15 +193,17 @@ static int hrpwm_apply_duty(const hrpwm_channel_map_t *map)
         return -1;
     }
 
-    duty = hrpwm_instances[map->instance].channels[map->pwm_index].duty;
+    channel = &hrpwm_instances[map->instance].channels[map->pwm_index];
+    cmp = hrpwm_calc_cmp_pair(hrpwm_instances[map->instance].reload, channel->duty, channel->align);
+    hrpwm_write_cmp_pair(base, map->cmp_start_index, &cmp);
 
-    status = pwm_update_duty_edge_aligned(base, map->cmp_start_index, duty * 100.0f);
-    return (status == status_success) ? 0 : -1;
+    return 0;
 }
 
 static int hrpwm_apply_frequency(uint8_t inst, uint32_t frequency_hz)
 {
     uint32_t clock_hz;
+    uint32_t reload;
     PWM_Type *base = hrpwm_get_base(inst);
     clock_name_t clock_name;
 
@@ -140,8 +218,13 @@ static int hrpwm_apply_frequency(uint8_t inst, uint32_t frequency_hz)
         return -1;
     }
 
+    reload = (clock_hz / frequency_hz) - 1U;
+    if (reload >= HRPWM_RELOAD_MAX_VALUE) {
+        return -1;
+    }
+
     hrpwm_instances[inst].frequency_hz = frequency_hz;
-    hrpwm_instances[inst].reload = (clock_hz / frequency_hz) - 1U;
+    hrpwm_instances[inst].reload = reload;
 
     pwm_set_reload(base, 0, hrpwm_instances[inst].reload);
     pwm_set_start_count(base, 0, 0);
@@ -175,7 +258,7 @@ static int hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
     pwm_cmp_config_t cmp_config[2] = {0};
 
     map = hrpwm_get_channel_map(ch);
-    if ((cfg == NULL) || (map == NULL) || !hrpwm_is_valid_duty(cfg->duty)) {
+    if ((cfg == NULL) || (map == NULL) || !hrpwm_is_valid_duty(cfg->duty) || !hrpwm_is_valid_align(cfg->align)) {
         return -1;
     }
 
@@ -206,6 +289,7 @@ static int hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
 
     cmp_config[1].mode = pwm_cmp_mode_output_compare;
     cmp_config[1].cmp = hrpwm_instances[inst].reload;
+    cmp_config[1].jitter_cmp = cfg->jitter_cmp;
     cmp_config[1].update_trigger = pwm_shadow_register_update_on_modify;
 
     if (pwm_setup_waveform_in_pair(base, map->pwm_index, &pair_config, map->cmp_start_index, cmp_config, 2) != status_success) {
@@ -216,6 +300,7 @@ static int hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
     hrpwm_instances[inst].channels[map->pwm_index].duty = cfg->duty;
     hrpwm_instances[inst].channels[map->pwm_index].reload = hrpwm_instances[inst].reload;
     hrpwm_instances[inst].channels[map->pwm_index].jitter_cmp = cfg->jitter_cmp;
+    hrpwm_instances[inst].channels[map->pwm_index].align = cfg->align;
 
     return hrpwm_apply_duty(map);
 }
@@ -251,7 +336,6 @@ static int hrpwm_set_jitter(intf_hrpwm_ch_t ch, uint8_t jitter_cmp)
 {
     const hrpwm_channel_map_t *map;
     PWM_Type *base;
-    pwm_cmp_config_t cmp_config = {0};
 
     map = hrpwm_get_channel_map(ch);
     if (map == NULL) {
@@ -267,15 +351,12 @@ static int hrpwm_set_jitter(intf_hrpwm_ch_t ch, uint8_t jitter_cmp)
         return -1;
     }
 
-    cmp_config.mode = pwm_cmp_mode_output_compare;
-    cmp_config.cmp = (uint32_t)((float)hrpwm_instances[map->instance].reload * hrpwm_instances[map->instance].channels[map->pwm_index].duty);
-    cmp_config.jitter_cmp = jitter_cmp;
-    cmp_config.update_trigger = pwm_shadow_register_update_on_modify;
-
-    pwm_config_cmp(base, map->cmp_start_index, &cmp_config);
+    pwm_shadow_register_unlock(base);
+    pwm_cmp_update_jitter_value(base, map->cmp_start_index, jitter_cmp);
+    pwm_cmp_update_jitter_value(base, map->cmp_start_index + 1U, jitter_cmp);
     hrpwm_instances[map->instance].channels[map->pwm_index].jitter_cmp = jitter_cmp;
 
-    return 0;
+    return hrpwm_apply_duty(map);
 }
 
 static int hrpwm_start(intf_hrpwm_ch_t ch)
@@ -385,78 +466,84 @@ static int hrpwm_force_release(intf_hrpwm_ch_t ch)
 static int hrpwm_config_fault(const intf_hrpwm_fault_cfg_t *cfg)
 {
     pwm_fault_source_config_t fault_config = {0};
+    pwm_fault_mode_t fault_mode;
+    pwm_fault_recovery_trigger_t fault_recovery;
 
     if (cfg == NULL) {
         return -1;
     }
 
+    switch (cfg->mode) {
+    case INTF_HRPWM_FAULT_MODE_FORCE_LOW:
+        fault_mode = pwm_fault_mode_force_output_0;
+        break;
+    case INTF_HRPWM_FAULT_MODE_FORCE_HIGH:
+        fault_mode = pwm_fault_mode_force_output_1;
+        break;
+    case INTF_HRPWM_FAULT_MODE_HIGH_Z:
+        fault_mode = pwm_fault_mode_force_output_highz;
+        break;
+    default:
+        return -1;
+    }
+
+    switch (cfg->recovery) {
+    case INTF_HRPWM_FAULT_RECOVERY_IMMEDIATELY:
+        fault_recovery = pwm_fault_recovery_immediately;
+        break;
+    case INTF_HRPWM_FAULT_RECOVERY_ON_RELOAD:
+        fault_recovery = pwm_fault_recovery_on_reload;
+        break;
+    case INTF_HRPWM_FAULT_RECOVERY_ON_HW_EVENT:
+        fault_recovery = pwm_fault_recovery_on_hw_event;
+        break;
+    case INTF_HRPWM_FAULT_RECOVERY_ON_FAULT_CLEAR:
+        fault_recovery = pwm_fault_recovery_on_fault_clear;
+        break;
+    default:
+        return -1;
+    }
+
+    fault_config.fault_output_recovery_trigger = fault_recovery;
+    switch (cfg->source) {
+    case INTF_HRPWM_FAULT_SRC_INTERNAL_0:
+        fault_config.source_mask = pwm_fault_source_internal_0;
+        break;
+    case INTF_HRPWM_FAULT_SRC_INTERNAL_1:
+        fault_config.source_mask = pwm_fault_source_internal_1;
+        break;
+    case INTF_HRPWM_FAULT_SRC_INTERNAL_2:
+        fault_config.source_mask = pwm_fault_source_internal_2;
+        break;
+    case INTF_HRPWM_FAULT_SRC_INTERNAL_3:
+        fault_config.source_mask = pwm_fault_source_internal_3;
+        break;
+    case INTF_HRPWM_FAULT_SRC_EXTERNAL_0:
+        fault_config.source_mask = pwm_fault_source_external_0;
+        fault_config.fault_external_0_active_low = cfg->active_low;
+        break;
+    case INTF_HRPWM_FAULT_SRC_EXTERNAL_1:
+        fault_config.source_mask = pwm_fault_source_external_1;
+        fault_config.fault_external_1_active_low = cfg->active_low;
+        break;
+    case INTF_HRPWM_FAULT_SRC_DEBUG:
+        fault_config.source_mask = pwm_fault_source_debug;
+        break;
+    default:
+        return -1;
+    }
+
     for (uint8_t inst = 0; inst < HRPWM_INSTANCE_COUNT; inst++) {
         PWM_Type *base = hrpwm_get_base(inst);
-        pwm_config_t pwm_config = {0};
 
         if (base == NULL) {
             return -1;
         }
 
-        pwm_get_default_pwm_config(base, &pwm_config);
-
-        switch (cfg->mode) {
-        case INTF_HRPWM_FAULT_MODE_FORCE_LOW:
-            pwm_config.fault_mode = pwm_fault_mode_force_output_0;
-            break;
-        case INTF_HRPWM_FAULT_MODE_FORCE_HIGH:
-            pwm_config.fault_mode = pwm_fault_mode_force_output_1;
-            break;
-        case INTF_HRPWM_FAULT_MODE_HIGH_Z:
-            pwm_config.fault_mode = pwm_fault_mode_force_output_highz;
-            break;
-        default:
-            return -1;
-        }
-
-        switch (cfg->recovery) {
-        case INTF_HRPWM_FAULT_RECOVERY_IMMEDIATELY:
-            fault_config.fault_output_recovery_trigger = pwm_fault_recovery_immediately;
-            break;
-        case INTF_HRPWM_FAULT_RECOVERY_ON_RELOAD:
-            fault_config.fault_output_recovery_trigger = pwm_fault_recovery_on_reload;
-            break;
-        case INTF_HRPWM_FAULT_RECOVERY_ON_HW_EVENT:
-            fault_config.fault_output_recovery_trigger = pwm_fault_recovery_on_hw_event;
-            break;
-        case INTF_HRPWM_FAULT_RECOVERY_ON_FAULT_CLEAR:
-            fault_config.fault_output_recovery_trigger = pwm_fault_recovery_on_fault_clear;
-            break;
-        default:
-            return -1;
-        }
-
-        switch (cfg->source) {
-        case INTF_HRPWM_FAULT_SRC_INTERNAL_0:
-            fault_config.source_mask = pwm_fault_source_internal_0;
-            break;
-        case INTF_HRPWM_FAULT_SRC_INTERNAL_1:
-            fault_config.source_mask = pwm_fault_source_internal_1;
-            break;
-        case INTF_HRPWM_FAULT_SRC_INTERNAL_2:
-            fault_config.source_mask = pwm_fault_source_internal_2;
-            break;
-        case INTF_HRPWM_FAULT_SRC_INTERNAL_3:
-            fault_config.source_mask = pwm_fault_source_internal_3;
-            break;
-        case INTF_HRPWM_FAULT_SRC_EXTERNAL_0:
-            fault_config.source_mask = pwm_fault_source_external_0;
-            fault_config.fault_external_0_active_low = cfg->active_low;
-            break;
-        case INTF_HRPWM_FAULT_SRC_EXTERNAL_1:
-            fault_config.source_mask = pwm_fault_source_external_1;
-            fault_config.fault_external_1_active_low = cfg->active_low;
-            break;
-        case INTF_HRPWM_FAULT_SRC_DEBUG:
-            fault_config.source_mask = pwm_fault_source_debug;
-            break;
-        default:
-            return -1;
+        for (uint8_t pwm_index = 0; pwm_index < PWM_SOC_PWM_MAX_COUNT; pwm_index++) {
+            base->PWMCFG[pwm_index] = (base->PWMCFG[pwm_index] & ~(PWM_PWMCFG_FAULTMODE_MASK | PWM_PWMCFG_FAULTRECTIME_MASK))
+                                      | PWM_PWMCFG_FAULTMODE_SET(fault_mode)
+                                      | PWM_PWMCFG_FAULTRECTIME_SET(fault_recovery);
         }
 
         pwm_config_fault_source(base, &fault_config);
@@ -470,6 +557,7 @@ static int hrpwm_clear_fault(void)
 {
     for (uint8_t inst = 0; inst < HRPWM_INSTANCE_COUNT; inst++) {
         PWM_Type *base = hrpwm_get_base(inst);
+        pwm_clear_fault(base);
         pwm_clear_status(base, pwm_get_status(base));
     }
     return 0;

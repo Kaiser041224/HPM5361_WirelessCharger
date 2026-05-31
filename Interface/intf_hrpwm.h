@@ -41,11 +41,17 @@ typedef enum {
     INTF_HRPWM_FAULT_RECOVERY_ON_FAULT_CLEAR,
 } intf_hrpwm_fault_recovery_t;
 
+typedef enum {
+    INTF_HRPWM_ALIGN_EDGE = 0,
+    INTF_HRPWM_ALIGN_CENTER,
+} intf_hrpwm_align_t;
+
 typedef struct {
     uint32_t frequency_hz;
     float duty;
     uint32_t deadtime_ns;
     uint8_t jitter_cmp;
+    intf_hrpwm_align_t align;
     bool invert_high_side;
     bool invert_low_side;
 } intf_hrpwm_pair_cfg_t;

@@ -58,7 +58,7 @@ sdk_app_src(Interface/intf_default.c)
 sdk_app_src(App/Logic/Src/app_gpio.c)
 sdk_app_src(App/Logic/Src/app_buzzer.c)
 sdk_app_src(App/Logic/Src/app_ws2812.c)
-sdk_app_src(App/Logic/Src/app_hrpwm_example.c)
+sdk_app_src(App/Logic/Src/app_hrpwm.c)
 
 # Main entry
 sdk_app_src(App/main.c)
