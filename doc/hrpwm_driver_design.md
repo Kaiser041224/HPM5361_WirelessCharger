@@ -25,7 +25,7 @@
 void hpm_hrpwm_driver_register(void);
 ```
 
-该函数位于 Driver 层。后续应由系统初始化层或专门的 driver bootstrap 调用，避免 App 直接依赖 Driver 符号。
+该函数位于 Driver 层，由各 App init 函数内部调用（如 `pwm_init()` 内部调用 `hpm_hrpwm_driver_register()`），遵循 `app_gpio.c` 已有的注册范例。`main.c` 不直接调用 Driver 层符号。
 
 ---
 
@@ -381,7 +381,7 @@ void pwm_init(void)
 }
 ```
 
-注意：`hpm_hrpwm_driver_register()` 在 `main.c` 的启动阶段调用，不在 `pwm_init()` 内部调用，以避免 App 层直接依赖 Driver 符号。
+注意：`hpm_hrpwm_driver_register()` 在 `pwm_init()` 内部调用，遵循 App init 函数自行完成驱动注册的范例。`main.c` 不直接调用 Driver 层符号。
 
 ### 8.3 统一控制接口
 

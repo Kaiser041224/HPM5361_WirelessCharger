@@ -3,8 +3,12 @@
 
 #define WS2812_PIXEL_COUNT 3
 
+extern int drv_ws2812_register(void);
+
 int app_ws2812_init(void)
 {
+    drv_ws2812_register();
+
     intf_ws2812_cfg_t cfg = {
         .pixel_count = WS2812_PIXEL_COUNT,
         .init_color = {0, 0, 0}

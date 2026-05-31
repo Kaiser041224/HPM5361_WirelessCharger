@@ -15,7 +15,11 @@
 static const intf_hrpwm_ch_t pair_to_ch[PWM_PAIR_COUNT] = {0, 2, 4, 6};
 static const intf_hrpwm_inst_t pair_to_inst[PWM_PAIR_COUNT] = {0, 0, 1, 1};
 
+extern void hpm_hrpwm_driver_register(void);
+
 void pwm_init(void) {
+    hpm_hrpwm_driver_register();
+
     intf_hrpwm_pair_cfg_t cfg[PWM_PAIR_COUNT] = {
         [PWM_PAIR_0] =
             {.frequency_hz = 200000,
