@@ -40,4 +40,7 @@ void app_debug_pwm_test_phase_sweep(uint8_t inst, uint8_t ref_pair, uint8_t targ
 /* 占空比分辨率测试 */
 void app_debug_pwm_test_duty_resolution(uint8_t inst, uint8_t pair, float duty_start, float duty_end, float duty_step, uint32_t delay_ms);
 
+/* HRPWM综合验证测试 */
+void app_debug_hrpwm_run_tests(void);
+
 #endif /* APP_DEBUG_RTT_H */

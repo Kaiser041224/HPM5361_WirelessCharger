@@ -64,11 +64,15 @@ HPM5361_WirelessCharger/
 │       ├── Inc/
 │       │   ├── app_gpio.h
 │       │   ├── app_buzzer.h
-│       │   └── app_ws2812.h
+│       │   ├── app_ws2812.h
+│       │   ├── app_hrpwm.h
+│       │   └── app_debug_rtt.h
 │       └── Src/
 │           ├── app_gpio.c      # GPIO 业务逻辑
 │           ├── app_buzzer.c    # 蜂鸣器业务逻辑
-│           └── app_ws2812.c    # WS2812 业务逻辑
+│           ├── app_ws2812.c    # WS2812 业务逻辑
+│           ├── app_hrpwm.c     # HRPWM App 封装
+│           └── app_debug_rtt.c # RTT 调试与HRPWM测试
 ├── doc/                        # 文档
 │   ├── hrpwm_driver_design.md  # HRPWM 驱动设计文档
 │   ├── hpm_pwm_gptmr_pwm_guide.md  # HPM PWM/GPTMR 使用指南
@@ -106,7 +110,7 @@ make flash
 
 | 驱动 | 接口 | 状态 | 说明 |
 |------|------|------|------|
-| HRPWM | `intf_hrpwm.h` | ✅ 完成 | 高性能 PWM (ch0..3, PA24-PA27) |
+| HRPWM | `intf_hrpwm.h` | ✅ 完成 | 双实例四对互补 PWM (ch0..7, PA24-PA31) |
 | GPWM | `intf_gpwm.h` | ✅ 完成 | GPTMR PWM (ch2..3) + 输入捕获 (ch1) |
 | GPIO | `intf_gpio.h` | ✅ 完成 | GPIO 输入/输出/中断 |
 | Clock | `intf_clock.h` | ✅ 完成 | PLL 配置、延迟函数 |
@@ -121,9 +125,19 @@ make flash
 > **重要**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API。
 
 - **接口**：`intf_hrpwm.h` - 匿名结构体 ops、float duty [0.0-1.0]
-- **驱动**：`drv_hrpwm.c` - 映射到 HPM_PWM0，边沿对齐 PWM
-- **引脚**：PA24-PA27 → PWM0_P_0 到 PWM0_P_3
-- **功能**：频率/占空比动态调整、启停控制、NaN duty 防护
+- **驱动**：`drv_hrpwm.c` - 映射到 `HPM_PWM0/1`，支持四对互补输出
+- **引脚**：PA24-PA31 → PWM0/PWM1 四对输出
+- **功能**：频率/占空比动态调整、启停控制、变频后移相重放、运行态 89° 边界保护
+
+### HRPWM 调试验证
+
+- `App/Logic/Src/app_debug_rtt.c` 提供 `app_debug_hrpwm_run_tests()` 综合测试入口。
+- `main.c` 默认调用该入口，覆盖以下场景：
+  - 静态初始移相：start 前验证 `0~180°`
+  - 运行态连续移相：限制并验证 `0~89°`
+  - 带移相的变频重放验证
+  - 占空比分辨率验证
+- 运行态若请求 `>89°` 的连续移相，Driver 会返回 `-1` 进行边界保护。
 
 详细设计文档请参考：`doc/hrpwm_driver_design.md`
 

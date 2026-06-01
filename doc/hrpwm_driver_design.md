@@ -240,6 +240,7 @@ pwm_disable_output(base, local_ch);
 - 改频会影响该实例的所有通道。
 - 驱动会遍历已配置通道并重新应用 duty。
 - 频率是实例级的，不是通道级的。
+- 若当前 instance 已激活 `set_phase()` 状态，改频完成后会自动重放目标 pair 的移相结果。
 
 ### 5.5 Duty 更新与对齐模式
 
@@ -255,7 +256,27 @@ pwm_disable_output(base, local_ch);
 - 直接更新两个 compare index 的 jitter 字段，不破坏 CMP/XCMP 值。
 - 更新后重新调用 `hrpwm_apply_duty()` 保持 compare 值一致。
 
-### 5.6 Fault 保护
+### 5.6 运行态与移相状态
+
+当前驱动为每个 PWM instance 保存一组移相状态：
+
+- `active`：当前 instance 是否存在激活中的移相关系
+- `ref_pair` / `target_pair`：参考 pair 与目标 pair
+- `phase_deg` / `phase_count`：缓存的相位角与对应计数偏移
+
+同时对每个 pair 保存：
+
+- `started`：该 pair 是否已经由 `hrpwm_start()` 使能输出
+
+语义约束如下：
+
+- **静态初始移相**：若 `ref_pair` 与 `target_pair` 都尚未 start，可在 start 前设置 `0~180°` 的初始相位。
+- **运行态连续移相**：一旦任一相关 pair 已 start，Driver 只接受 `0~89°` 的相位更新；`>89°` 直接返回 `-1`，用于避开 90° 邻域的已知边界跳变。
+- **target pair 独立 duty 禁止**：当某个 pair 正作为 active phase 的 `target_pair` 时，`hrpwm_set_duty()` 会拒绝对其单独改占空比，避免与派生波形冲突。
+- **reference pair duty 更新**：若修改的是 active phase 的 `ref_pair`，驱动会在更新 duty 后自动重放 phase。
+- **切换 target pair**：若 active phase 从一个 target pair 切换到另一个，旧 target pair 会恢复为其自身 duty/极性对应的原始波形。
+
+### 5.7 Fault 保护
 
 `hrpwm_config_fault(cfg)`：
 
@@ -268,7 +289,7 @@ pwm_disable_output(base, local_ch);
 - 调用 SDK `pwm_clear_fault(base)` 清除 fault latch。
 - 再调用 `pwm_clear_status()` 清除状态位。
 
-### 5.6 Force-low / Force-release
+### 5.8 Force-low / Force-release
 
 `hrpwm_force_low(ch)`：
 
@@ -734,9 +755,9 @@ int app_debug_pwm_irq_register_callback(uint8_t inst, pwm_irq_user_callback_t ca
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 12.3 移相原理
+### 12.3 移相原理与当前实现边界
 
-同一PWM实例内的不同pair共享同一个Counter，移相通过调整CMP值实现：
+同一 PWM 实例内的不同 pair 共享同一个 Counter，当前工程的移相实现不是硬件原生 phase timer，而是基于 compare 窗口重编码：
 
 ```
 Counter:  0 ──────────────────────────────────────→ Reload
@@ -746,11 +767,23 @@ Pair0:    │  ┌────────────────────�
           └──┤cmp_begin    cmp_end └────────────────┘
 
 Pair1:    │        ┌─────────────────────┐          │
-          │        │      高电平          │          │
-          └────────┤cmp_begin    cmp_end └──────────┘
-                   ↑
-                   └─ 相位差 = phase_count / reload * 360°
+           │        │      高电平          │          │
+           └────────┤cmp_begin    cmp_end └──────────┘
+                    ↑
+                   └─ 相位差 = phase_count / (reload + 1) * 360°
 ```
+
+实现要点：
+
+- HPM PWM 采用单向计数，一个周期为 `0 .. reload`。
+- 对 center-aligned 波形，Driver 先根据 duty 计算基础 compare 窗口，再对目标 pair 做 phase 偏移。
+- 若偏移后的窗口跨越 reload，Driver 会将其编码为“有序 compare 窗口 + 输出极性翻转”的补集形式，而不是依赖 `cmp_begin > cmp_end` 的隐式解释。
+
+已知工程性约束：
+
+- **静态设相位**：支持 start 前设置 `0~180°` 任意初值。
+- **连续移相**：为保证同 instance 四路输出稳定，运行态连续调相只支持 `0~89°`。
+- **90°邻域保护**：接近 90° 时底层 compare/XOR 语义容易产生瞬态跳变，因此 Driver 对运行态 `>89°` 请求直接拒绝。
 
 ### 12.4 接口定义
 
@@ -789,12 +822,12 @@ void pwm_init(void)
     };
     intf_hrpwm_config_phase_limit(0, &limit);
 
-    /* PWM0移相：Pair1相对于Pair0移相90度 */
+    /* PWM0移相：Pair1相对于Pair0设置静态初始移相 */
     intf_hrpwm_phase_cfg_t phase_cfg = {
         .inst = 0,
         .ref_pair = 0,
         .target_pair = 1,
-        .phase_deg = 90.0f,
+        .phase_deg = 120.0f,
     };
     intf_hrpwm_set_phase(&phase_cfg);
 }
@@ -805,7 +838,7 @@ void change_frequency(uint32_t freq_hz)
     intf_hrpwm_set_frequency(0, freq_hz);
 }
 
-/* 动态移相 */
+/* 动态移相（运行态建议限制在 0~89°） */
 void change_phase(float phase_deg)
 {
     intf_hrpwm_phase_cfg_t cfg = {

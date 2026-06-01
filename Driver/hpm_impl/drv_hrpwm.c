@@ -16,6 +16,7 @@
 #include "hpm_trgmmux_src.h"
 
 #include <assert.h>
+#include <math.h>
 #include <stddef.h>
 
 #define HRPWM_INSTANCE_COUNT    (2U)
@@ -23,6 +24,7 @@
 #define HRPWM_CHANNEL_COUNT     (8U)
 
 #define HRPWM_CMP_START_INDEX(pwm_index) ((uint8_t)((pwm_index) * 2U))
+#define HRPWM_PHASE_RUNTIME_GUARD_MAX_DEG   (89.0f)
 
 /* 配置：是否使用28位扩展计数器
  * 0 = 使用24位计数器（默认，兼容性好）
@@ -53,14 +55,20 @@ typedef struct {
 
 typedef struct {
     bool configured;
+    bool started;
     float duty;
     uint32_t reload;
     uint8_t ex_reload;
     uint8_t jitter_cmp;
     intf_hrpwm_align_t align;
+    bool invert_high_side;
+    bool invert_low_side;
 } hrpwm_channel_state_t;
 
 typedef struct {
+    bool active;
+    uint8_t ref_pair;
+    uint8_t target_pair;
     float phase_deg;
     uint32_t phase_count;
 } hrpwm_phase_state_t;
@@ -117,6 +125,17 @@ static const hrpwm_channel_map_t hrpwm_channel_maps[] = {
         .cmp_start_index = HRPWM_CMP_START_INDEX(BOARD_APP_HRPWM_PWM1_PAIR1_OUT),
     },
 };
+
+static uint32_t hrpwm_get_full_reload(uint8_t inst)
+{
+#if HRPWM_USE_EXTENDED_COUNTER
+    return ((uint32_t)hrpwm_instances[inst].ex_reload << 24U) | hrpwm_instances[inst].reload;
+#else
+    return hrpwm_instances[inst].reload;
+#endif
+}
+
+static int hrpwm_apply_duty(const hrpwm_channel_map_t *map);
 
 static void hrpwm_init_instances(void)
 {
@@ -289,6 +308,188 @@ static void hrpwm_write_cmp_pair(PWM_Type *base, uint8_t cmp_start_index, const 
 #endif
 }
 
+static void hrpwm_set_pair_output_invert(PWM_Type *base,
+                                         const hrpwm_channel_map_t *map,
+                                         bool invert_window)
+{
+    pwm_output_channel_t ch_cfg;
+    const hrpwm_channel_state_t *channel;
+
+    if (base == NULL || map == NULL) {
+        return;
+    }
+
+    channel = &hrpwm_instances[map->instance].channels[map->pwm_index];
+
+    ch_cfg.cmp_start_index = map->cmp_start_index;
+    ch_cfg.cmp_end_index = map->cmp_start_index + 1U;
+
+    ch_cfg.invert_output = channel->invert_high_side ^ invert_window;
+    pwm_config_output_channel(base, map->pwm_index, &ch_cfg);
+
+    ch_cfg.invert_output = channel->invert_low_side ^ invert_window;
+    pwm_config_output_channel(base, map->pwm_index + 1U, &ch_cfg);
+}
+
+static bool hrpwm_phase_targets_channel(uint8_t inst, uint8_t pwm_index)
+{
+    hrpwm_phase_state_t *phase;
+
+    if (inst >= HRPWM_INSTANCE_COUNT) {
+        return false;
+    }
+
+    phase = &hrpwm_instances[inst].phase;
+    if (!phase->active) {
+        return false;
+    }
+
+    if (phase->target_pair == 0U) {
+        return pwm_index == (uint8_t)(inst * 4U);
+    }
+
+    return pwm_index == (uint8_t)(inst * 4U + 2U);
+}
+
+static bool hrpwm_phase_is_running(uint8_t inst)
+{
+    const hrpwm_channel_map_t *ref_map;
+    const hrpwm_channel_map_t *target_map;
+    hrpwm_phase_state_t *phase;
+
+    if (inst >= HRPWM_INSTANCE_COUNT) {
+        return false;
+    }
+
+    phase = &hrpwm_instances[inst].phase;
+    if (!phase->active) {
+        return false;
+    }
+
+    ref_map = hrpwm_get_pair_map(inst, phase->ref_pair);
+    target_map = hrpwm_get_pair_map(inst, phase->target_pair);
+    if (ref_map == NULL || target_map == NULL) {
+        return false;
+    }
+
+    return hrpwm_instances[inst].channels[ref_map->pwm_index].started
+        || hrpwm_instances[inst].channels[target_map->pwm_index].started;
+}
+
+static bool hrpwm_phase_refs_channel(uint8_t inst, uint8_t pwm_index)
+{
+    hrpwm_phase_state_t *phase;
+
+    if (inst >= HRPWM_INSTANCE_COUNT) {
+        return false;
+    }
+
+    phase = &hrpwm_instances[inst].phase;
+    if (!phase->active) {
+        return false;
+    }
+
+    if (phase->ref_pair == 0U) {
+        return pwm_index == (uint8_t)(inst * 4U);
+    }
+
+    return pwm_index == (uint8_t)(inst * 4U + 2U);
+}
+
+static int hrpwm_restore_pair_waveform(uint8_t inst, uint8_t pair)
+{
+    PWM_Type *base;
+    const hrpwm_channel_map_t *map;
+
+    map = hrpwm_get_pair_map(inst, pair);
+    if (map == NULL) {
+        return -1;
+    }
+
+    base = hrpwm_get_base(inst);
+    if (base == NULL) {
+        return -1;
+    }
+
+    hrpwm_set_pair_output_invert(base, map, false);
+    return hrpwm_apply_duty(map);
+}
+
+static int hrpwm_apply_phase(uint8_t inst)
+{
+    hrpwm_instance_state_t *inst_state;
+    const hrpwm_channel_map_t *ref_map;
+    const hrpwm_channel_map_t *target_map;
+    hrpwm_channel_state_t *ref_ch;
+    hrpwm_channel_state_t *target_ch;
+    PWM_Type *base;
+    uint32_t full_reload;
+    uint32_t period_count;
+    hrpwm_cmp_pair_t ref_cmp;
+    hrpwm_cmp_pair_t target_cmp;
+    uint32_t new_begin;
+    uint32_t new_end;
+    bool invert_window = false;
+
+    if (inst >= HRPWM_INSTANCE_COUNT) {
+        return -1;
+    }
+
+    inst_state = &hrpwm_instances[inst];
+    if (!inst_state->phase.active) {
+        return 0;
+    }
+
+    ref_map = hrpwm_get_pair_map(inst, inst_state->phase.ref_pair);
+    target_map = hrpwm_get_pair_map(inst, inst_state->phase.target_pair);
+    if (ref_map == NULL || target_map == NULL) {
+        return -1;
+    }
+
+    ref_ch = &inst_state->channels[ref_map->pwm_index];
+    target_ch = &inst_state->channels[target_map->pwm_index];
+    if (!ref_ch->configured || !target_ch->configured) {
+        return -1;
+    }
+
+    if (ref_ch->duty > inst_state->phase_limit.max_duty_ref
+        || target_ch->duty > inst_state->phase_limit.max_duty_target) {
+        return -1;
+    }
+
+    base = hrpwm_get_base(inst);
+    if (base == NULL) {
+        return -1;
+    }
+
+    full_reload = hrpwm_get_full_reload(inst);
+    period_count = full_reload + 1U;
+    ref_cmp = hrpwm_calc_cmp_pair(full_reload, ref_ch->duty, ref_ch->align);
+
+    if (ref_cmp.cmp_begin > full_reload || ref_cmp.cmp_end > full_reload) {
+        hrpwm_set_pair_output_invert(base, target_map, false);
+        hrpwm_write_cmp_pair(base, target_map->cmp_start_index, &ref_cmp);
+        return 0;
+    }
+
+    new_begin = ref_cmp.cmp_begin + inst_state->phase.phase_count;
+    new_end = ref_cmp.cmp_end + inst_state->phase.phase_count;
+
+    target_cmp.cmp_begin = new_begin % period_count;
+    target_cmp.cmp_end = new_end % period_count;
+
+    if (target_cmp.cmp_begin > target_cmp.cmp_end) {
+        uint32_t temp = target_cmp.cmp_begin;
+        target_cmp.cmp_begin = target_cmp.cmp_end;
+        target_cmp.cmp_end = temp;
+        invert_window = true;
+    }
+
+    hrpwm_set_pair_output_invert(base, target_map, invert_window);
+    hrpwm_write_cmp_pair(base, target_map->cmp_start_index, &target_cmp);
+    return 0;
+}
+
 static int hrpwm_apply_duty(const hrpwm_channel_map_t *map)
 {
     PWM_Type *base;
@@ -307,14 +508,10 @@ static int hrpwm_apply_duty(const hrpwm_channel_map_t *map)
 
     channel = &hrpwm_instances[map->instance].channels[map->pwm_index];
 
-#if HRPWM_USE_EXTENDED_COUNTER
-    full_reload = ((uint32_t)hrpwm_instances[map->instance].ex_reload << 24U)
-                | hrpwm_instances[map->instance].reload;
-#else
-    full_reload = hrpwm_instances[map->instance].reload;
-#endif
+    full_reload = hrpwm_get_full_reload(map->instance);
 
     cmp = hrpwm_calc_cmp_pair(full_reload, channel->duty, channel->align);
+    hrpwm_set_pair_output_invert(base, map, false);
     hrpwm_write_cmp_pair(base, map->cmp_start_index, &cmp);
 
     return 0;
@@ -368,6 +565,10 @@ static int hrpwm_apply_frequency(uint8_t inst, uint32_t frequency_hz)
                 return -1;
             }
         }
+    }
+
+    if (hrpwm_apply_phase(inst) != 0) {
+        return -1;
     }
 
     return 0;
@@ -443,6 +644,8 @@ static int hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
     hrpwm_instances[inst].channels[map->pwm_index].ex_reload = hrpwm_instances[inst].ex_reload;
     hrpwm_instances[inst].channels[map->pwm_index].jitter_cmp = cfg->jitter_cmp;
     hrpwm_instances[inst].channels[map->pwm_index].align = cfg->align;
+    hrpwm_instances[inst].channels[map->pwm_index].invert_high_side = cfg->invert_high_side;
+    hrpwm_instances[inst].channels[map->pwm_index].invert_low_side = cfg->invert_low_side;
 
     return hrpwm_apply_duty(map);
 }
@@ -450,18 +653,34 @@ static int hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
 static int hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty)
 {
     const hrpwm_channel_map_t *map;
+    hrpwm_instance_state_t *inst_state;
 
     map = hrpwm_get_channel_map(ch);
     if ((map == NULL) || !hrpwm_is_valid_duty(duty)) {
         return -1;
     }
 
-    if (!hrpwm_instances[map->instance].channels[map->pwm_index].configured) {
+    inst_state = &hrpwm_instances[map->instance];
+
+    if (!inst_state->channels[map->pwm_index].configured) {
         return -1;
     }
 
-    hrpwm_instances[map->instance].channels[map->pwm_index].duty = duty;
-    return hrpwm_apply_duty(map);
+    if (hrpwm_phase_targets_channel(map->instance, map->pwm_index)) {
+        return -1;
+    }
+
+    inst_state->channels[map->pwm_index].duty = duty;
+
+    if (hrpwm_apply_duty(map) != 0) {
+        return -1;
+    }
+
+    if (hrpwm_phase_refs_channel(map->instance, map->pwm_index)) {
+        return hrpwm_apply_phase(map->instance);
+    }
+
+    return 0;
 }
 
 static int hrpwm_set_frequency_pwm0(uint32_t frequency_hz)
@@ -524,6 +743,7 @@ static int hrpwm_start(intf_hrpwm_ch_t ch)
     pwm_enable_output(base, map->pwm_index + 1U);
     pwm_start_counter(base);
     pwm_issue_shadow_register_lock_event(base);
+    hrpwm_instances[map->instance].channels[map->pwm_index].started = true;
     return 0;
 }
 
@@ -548,6 +768,7 @@ static int hrpwm_stop(intf_hrpwm_ch_t ch)
 
     pwm_disable_output(base, map->pwm_index);
     pwm_disable_output(base, map->pwm_index + 1U);
+    hrpwm_instances[map->instance].channels[map->pwm_index].started = false;
     return 0;
 }
 
@@ -799,6 +1020,9 @@ static int hrpwm_disable_reload_irq_pwm1(void)
 /* 移相功能实现 - 通过CMP值偏移实现同一PWM实例内不同pair之间的移相 */
 static int hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg)
 {
+    uint8_t prev_target_pair;
+    bool restore_prev_target = false;
+
     if (cfg == NULL || cfg->inst >= HRPWM_INSTANCE_COUNT) {
         return -1;
     }
@@ -810,24 +1034,26 @@ static int hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg)
     hrpwm_instance_state_t *inst_state = &hrpwm_instances[cfg->inst];
     float max_phase = inst_state->phase_limit.max_phase_deg;
 
-    if (cfg->phase_deg < 0.0f || cfg->phase_deg > max_phase) {
+    if (!isfinite(cfg->phase_deg) || !isfinite(max_phase)
+        || cfg->phase_deg < 0.0f || cfg->phase_deg > max_phase) {
         return -1;
     }
 
-#if HRPWM_USE_EXTENDED_COUNTER
-    uint32_t full_reload = ((uint32_t)inst_state->ex_reload << 24U) | inst_state->reload;
-#else
-    uint32_t full_reload = inst_state->reload;
-#endif
-
-    uint32_t phase_count = (uint32_t)((float)full_reload * cfg->phase_deg / 180.0f);
-
-    if (phase_count > full_reload) {
-        phase_count = full_reload;
+    /* For a static initial phase (before either pair starts), keep support for
+     * the full 0~180° configuration range. Once the waveform is already
+     * running, add a guard band near 90° and degrade continuous phase updates
+     * to the more stable 0~89° range to avoid the known boundary glitch near
+     * the 90° wrapped-window transition. */
+    if (hrpwm_phase_is_running(cfg->inst) && cfg->phase_deg > HRPWM_PHASE_RUNTIME_GUARD_MAX_DEG) {
+        return -1;
     }
 
-    inst_state->phase.phase_deg = cfg->phase_deg;
-    inst_state->phase.phase_count = phase_count;
+    uint32_t period_count = hrpwm_get_full_reload(cfg->inst) + 1U;
+    uint32_t phase_count = (uint32_t)((float)period_count * cfg->phase_deg / 360.0f);
+
+    if (phase_count >= period_count) {
+        phase_count = period_count - 1U;
+    }
 
     const hrpwm_channel_map_t *ref_map = hrpwm_get_pair_map(cfg->inst, cfg->ref_pair);
     const hrpwm_channel_map_t *target_map = hrpwm_get_pair_map(cfg->inst, cfg->target_pair);
@@ -837,39 +1063,46 @@ static int hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg)
     }
 
     hrpwm_channel_state_t *ref_ch = &inst_state->channels[ref_map->pwm_index];
+    hrpwm_channel_state_t *target_ch = &inst_state->channels[target_map->pwm_index];
 
-    if (!ref_ch->configured) {
+    if (!ref_ch->configured || !target_ch->configured) {
         return -1;
     }
 
-    PWM_Type *base = hrpwm_get_base(cfg->inst);
-    if (base == NULL) {
+    if (ref_ch->duty > inst_state->phase_limit.max_duty_ref
+        || target_ch->duty > inst_state->phase_limit.max_duty_target) {
         return -1;
     }
 
-    hrpwm_cmp_pair_t ref_cmp = hrpwm_calc_cmp_pair(full_reload, ref_ch->duty, ref_ch->align);
-
-    uint32_t new_begin = ref_cmp.cmp_begin + phase_count;
-    uint32_t new_end = ref_cmp.cmp_end + phase_count;
-
-    hrpwm_cmp_pair_t target_cmp;
-    target_cmp.cmp_begin = new_begin % (full_reload + 1U);
-    target_cmp.cmp_end = new_end % (full_reload + 1U);
-
-    if (target_cmp.cmp_begin > target_cmp.cmp_end) {
-        uint32_t temp = target_cmp.cmp_begin;
-        target_cmp.cmp_begin = target_cmp.cmp_end;
-        target_cmp.cmp_end = temp;
+    prev_target_pair = inst_state->phase.target_pair;
+    if (inst_state->phase.active && prev_target_pair != cfg->target_pair) {
+        restore_prev_target = true;
     }
 
-    hrpwm_write_cmp_pair(base, target_map->cmp_start_index, &target_cmp);
+    inst_state->phase.active = true;
+    inst_state->phase.ref_pair = cfg->ref_pair;
+    inst_state->phase.target_pair = cfg->target_pair;
+    inst_state->phase.phase_deg = cfg->phase_deg;
+    inst_state->phase.phase_count = phase_count;
 
-    return 0;
+    if (restore_prev_target && hrpwm_restore_pair_waveform(cfg->inst, prev_target_pair) != 0) {
+        return -1;
+    }
+
+    return hrpwm_apply_phase(cfg->inst);
 }
 
 static int hrpwm_config_phase_limit(const intf_hrpwm_phase_limit_t *limit)
 {
     if (limit == NULL) {
+        return -1;
+    }
+
+    if (!isfinite(limit->max_phase_deg) || !isfinite(limit->max_duty_ref)
+        || !isfinite(limit->max_duty_target)
+        || limit->max_phase_deg < 0.0f
+        || limit->max_duty_ref < 0.0f || limit->max_duty_ref > 1.0f
+        || limit->max_duty_target < 0.0f || limit->max_duty_target > 1.0f) {
         return -1;
     }
 
