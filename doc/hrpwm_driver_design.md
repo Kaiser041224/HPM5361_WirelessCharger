@@ -695,7 +695,142 @@ int app_debug_pwm_irq_register_callback(uint8_t inst, pwm_irq_user_callback_t ca
 
 ---
 
-## 12. 开发检查清单
+## 12. 变频与移相功能
+
+### 12.1 功能概述
+
+| 功能 | 说明 | 应用场景 |
+|------|------|----------|
+| **变频** | 动态改变PWM频率 | 轻载降频、频率抖动、软启动 |
+| **移相** | 同一PWM实例内不同pair之间的相位差 | 四开关Buck-Boost、全桥移相控制 |
+
+### 12.2 硬件拓扑
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           PWM0 (四开关Buck-Boost)                        │
+│                                                                         │
+│   Pair0 (ch0/ch1)          Pair1 (ch2/ch3)                             │
+│   PA24/PA25                PA26/PA27                                    │
+│   ┌─────────┐              ┌─────────┐                                 │
+│   │ 左半桥   │              │ 右半桥   │                                 │
+│   │ Q1/Q2   │              │ Q3/Q4   │                                 │
+│   └─────────┘              └─────────┘                                 │
+│        ↑                        ↑                                       │
+│        └─────── 移相 φ ─────────┘                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           PWM1 (全桥LCC)                                │
+│                                                                         │
+│   Pair2 (ch4/ch5)          Pair3 (ch6/ch7)                             │
+│   PA28/PA29                PA30/PA31                                    │
+│   ┌─────────┐              ┌─────────┐                                 │
+│   │ 桥臂1   │              │ 桥臂2   │                                 │
+│   │ Q5/Q6   │              │ Q7/Q8   │                                 │
+│   └─────────┘              └─────────┘                                 │
+│        ↑                        ↑                                       │
+│        └─────── 移相 φ ─────────┘                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 12.3 移相原理
+
+同一PWM实例内的不同pair共享同一个Counter，移相通过调整CMP值实现：
+
+```
+Counter:  0 ──────────────────────────────────────→ Reload
+          │                                         │
+Pair0:    │  ┌─────────────────────┐                │
+          │  │      高电平          │                │
+          └──┤cmp_begin    cmp_end └────────────────┘
+
+Pair1:    │        ┌─────────────────────┐          │
+          │        │      高电平          │          │
+          └────────┤cmp_begin    cmp_end └──────────┘
+                   ↑
+                   └─ 相位差 = phase_count / reload * 360°
+```
+
+### 12.4 接口定义
+
+```c
+/* 移相配置 */
+typedef struct {
+    intf_hrpwm_inst_t inst;         /* PWM实例 (0或1) */
+    intf_hrpwm_pair_t ref_pair;     /* 参考pair (0或1) */
+    intf_hrpwm_pair_t target_pair;  /* 目标pair (0或1) */
+    float phase_deg;                /* 移相角度 (0-max_phase_deg) */
+} intf_hrpwm_phase_cfg_t;
+
+/* 移相限制配置 */
+typedef struct {
+    float max_phase_deg;            /* 最大移相角度，默认180.0 */
+    float max_duty_ref;             /* 参考pair最大占空比限制，默认1.0 */
+    float max_duty_target;          /* 目标pair最大占空比限制，默认1.0 */
+} intf_hrpwm_phase_limit_t;
+
+/* API */
+int intf_hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg);
+int intf_hrpwm_config_phase_limit(intf_hrpwm_inst_t inst, const intf_hrpwm_phase_limit_t *limit);
+```
+
+### 12.5 使用示例
+
+```c
+/* 初始化 */
+void pwm_init(void)
+{
+    /* 配置移相限制（可选） */
+    intf_hrpwm_phase_limit_t limit = {
+        .max_phase_deg = 180.0f,
+        .max_duty_ref = 1.0f,
+        .max_duty_target = 1.0f,
+    };
+    intf_hrpwm_config_phase_limit(0, &limit);
+
+    /* PWM0移相：Pair1相对于Pair0移相90度 */
+    intf_hrpwm_phase_cfg_t phase_cfg = {
+        .inst = 0,
+        .ref_pair = 0,
+        .target_pair = 1,
+        .phase_deg = 90.0f,
+    };
+    intf_hrpwm_set_phase(&phase_cfg);
+}
+
+/* 动态变频 */
+void change_frequency(uint32_t freq_hz)
+{
+    intf_hrpwm_set_frequency(0, freq_hz);
+}
+
+/* 动态移相 */
+void change_phase(float phase_deg)
+{
+    intf_hrpwm_phase_cfg_t cfg = {
+        .inst = 0,
+        .ref_pair = 0,
+        .target_pair = 1,
+        .phase_deg = phase_deg,
+    };
+    intf_hrpwm_set_phase(&cfg);
+}
+```
+
+### 12.6 注意事项
+
+| 项目 | 说明 |
+|------|------|
+| **移相范围** | 默认0-180度，可通过`config_phase_limit`修改 |
+| **移相精度** | 360° / reload，200kHz时约0.6° |
+| **变频影响** | 变频后移相角自动保持（基于reload比例） |
+| **占空比限制** | 默认不限制，可通过`config_phase_limit`配置 |
+| **死区保护** | 使用固定死区插入，移相后无需额外死区 |
+
+---
+
+## 13. 开发检查清单
 
 开发 HRPWM 驱动新功能时，请按以下清单检查：
 
@@ -750,3 +885,90 @@ int app_debug_pwm_irq_register_callback(uint8_t inst, pwm_irq_user_callback_t ca
    - ILM 部署：将关键函数放入 ILM
    - Cache 对齐：ADC DMA 缓冲区 `_Alignas(32)`
    - RAMFUNC：中断处理函数、PID 控制器放入 RAM
+
+---
+
+## 12. 28位扩展计数器
+
+### 12.1 概述
+
+HPM5361 PWM计数器支持28位模式：
+- **24位主计数器**（CNT）：bit 4-27
+- **4位扩展计数器**（XCNT）：bit 28-31
+
+### 12.2 配置方式
+
+```c
+/* drv_hrpwm.c 文件开头 */
+#define HRPWM_USE_EXTENDED_COUNTER  (1U)   /* 启用28位 */
+// 或
+#define HRPWM_USE_EXTENDED_COUNTER  (0U)   /* 使用24位（默认） */
+```
+
+### 12.3 性能对比
+
+| 特性 | 24位模式 | 28位模式 |
+|------|----------|----------|
+| **最大reload值** | 16,777,215 | 268,435,455 |
+| **最低频率@120MHz** | ~7.16 Hz | ~0.447 Hz |
+| **分辨率@200kHz** | 600级 (9.2-bit) | 9600级 (13.2-bit) |
+| **分辨率@148kHz** | 811级 (9.7-bit) | 12976级 (13.7-bit) |
+| **最小占空比步进@200kHz** | 0.167% | 0.0104% |
+
+### 12.4 实现细节
+
+```c
+/* reload值分离 */
+hrpwm_instances[inst].reload = reload & HRPWM_RELOAD_MAX_24BIT;
+hrpwm_instances[inst].ex_reload = (reload >> 24U) & 0x0FU;
+
+/* CMP值写入 */
+pwm_cmp_update_cmp_value(base, index, cmp_24bit, ex_cmp);
+
+/* 寄存器配置 */
+pwm_set_reload(base, ex_reload, reload_24bit);
+```
+
+### 12.5 占空比分辨率测试
+
+```c
+/* app_debug_rtt.h */
+void app_debug_pwm_test_duty_resolution(uint8_t inst, uint8_t pair, 
+                                         float duty_start, float duty_end, 
+                                         float duty_step, uint32_t delay_ms);
+
+/* 使用示例 */
+app_debug_pwm_test_duty_resolution(0, 0, 0.49f, 0.51f, 0.0001f, 1000);
+```
+
+**测试输出示例**：
+```
+[TEST] PWM0 pair0 duty resolution test
+[TEST]   range: 0.4900 -> 0.5100, step=0.0001
+[TEST]   mode: 28-bit counter (higher resolution)
+[TEST]   duty = 0.4900 (49.00%)
+[TEST]   duty = 0.4901 (49.01%)
+...
+[TEST]   duty = 0.5100 (51.00%)
+[TEST] PWM0 pair0 duty resolution test done
+```
+
+### 12.6 注意事项
+
+| 项目 | 说明 |
+|------|------|
+| **兼容性** | 28位模式需要硬件支持，HPM5361默认支持 |
+| **CMP值** | 需要同时设置24位CMP和4位扩展CMP |
+| **移相** | 移相算法自动适配28位模式 |
+| **中断** | 中断计数不受影响 |
+
+---
+
+## 13. 修订记录
+
+| 日期 | 版本 | 说明 |
+|------|------|------|
+| 2026-05-31 | v0.1 | 初始设计文档 |
+| 2026-05-31 | v0.2 | 添加§10 PWM中断机制 |
+| 2026-05-31 | v0.3 | 添加§11 变频与移相功能 |
+| 2026-05-31 | v0.4 | 添加§12 28位扩展计数器 |

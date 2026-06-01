@@ -17,6 +17,7 @@ extern "C" {
 
 typedef uint8_t intf_hrpwm_inst_t;
 typedef uint8_t intf_hrpwm_ch_t;
+typedef uint8_t intf_hrpwm_pair_t;
 
 /* PWM中断回调函数类型 */
 typedef void (*intf_hrpwm_irq_callback_t)(void);
@@ -66,6 +67,21 @@ typedef struct {
     bool active_low;
 } intf_hrpwm_fault_cfg_t;
 
+/* 移相配置 */
+typedef struct {
+    intf_hrpwm_inst_t inst;         /* PWM实例 (0或1) */
+    intf_hrpwm_pair_t ref_pair;     /* 参考pair (0或1) */
+    intf_hrpwm_pair_t target_pair;  /* 目标pair (0或1) */
+    float phase_deg;                /* 移相角度 (0-max_phase_deg) */
+} intf_hrpwm_phase_cfg_t;
+
+/* 移相限制配置 */
+typedef struct {
+    float max_phase_deg;            /* 最大移相角度，默认180.0 */
+    float max_duty_ref;             /* 参考pair最大占空比限制，默认1.0 */
+    float max_duty_target;          /* 目标pair最大占空比限制，默认1.0 */
+} intf_hrpwm_phase_limit_t;
+
 typedef struct {
     uint8_t instance_id;
     struct {
@@ -82,6 +98,8 @@ typedef struct {
         int (*config_reload_irq)(intf_hrpwm_irq_callback_t callback);
         int (*enable_reload_irq)(void);
         int (*disable_reload_irq)(void);
+        int (*set_phase)(const intf_hrpwm_phase_cfg_t *cfg);
+        int (*config_phase_limit)(const intf_hrpwm_phase_limit_t *limit);
     };
 } intf_hrpwm_t;
 
@@ -101,6 +119,10 @@ int intf_hrpwm_clear_fault(intf_hrpwm_inst_t inst);
 int intf_hrpwm_config_reload_irq(intf_hrpwm_inst_t inst, intf_hrpwm_irq_callback_t callback);
 int intf_hrpwm_enable_reload_irq(intf_hrpwm_inst_t inst);
 int intf_hrpwm_disable_reload_irq(intf_hrpwm_inst_t inst);
+
+/* 移相配置接口 */
+int intf_hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg);
+int intf_hrpwm_config_phase_limit(intf_hrpwm_inst_t inst, const intf_hrpwm_phase_limit_t *limit);
 
 #ifdef __cplusplus
 }

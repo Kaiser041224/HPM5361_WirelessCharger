@@ -86,6 +86,12 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 - [x] 时钟配置（`clock_mot0`，`clock_add_to_group` 使能）
 - [x] 抖动技术集成（`jitter_cmp` 配置，提高 DPWM 有效分辨率）
 - [x] CMP边界处理修复（100%占空比窄脉冲问题，详见 hrpwm_driver_design.md §10.1）
+- [x] PWM中断支持（PWM_IRQ_RELOAD，中心对齐模式中心点触发）
+- [x] 中断回调链机制（调试计数 + 用户业务回调共存）
+- [x] 变频功能（动态修改reload值，支持shadow寄存器同步）
+- [x] 移相功能（同一PWM实例内不同pair之间的相位偏移）
+- [x] 28位扩展计数器支持（可选，通过HRPWM_USE_EXTENDED_COUNTER宏配置）
+- [x] 占空比分辨率测试（28位模式下分辨率提升16倍）
 - [ ] shadow register 同步更新策略优化
 
 ### 2.4 GPWM 驱动 (`Driver/hpm_impl/drv_gpwm.c`)
@@ -110,10 +116,11 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 | 组件 | 文件 | 状态 | 说明 |
 |------|------|------|------|
 | 接口定义 | `Interface/intf_hrpwm.h` | ✅ 完成 | 匿名结构体 ops、float duty 归一化 |
-| 驱动实现 | `Driver/hpm_impl/drv_hrpwm.c` | ✅ 完成 | 165 行，映射到 HPM_PWM0 |
+| 驱动实现 | `Driver/hpm_impl/drv_hrpwm.c` | ✅ 完成 | 双实例支持、中断、变频、移相、28位计数器 |
 | 注册分发 | `Interface/intf_default.c` | ✅ 完成 | `hrpwm_ops` 指针保存与分发 |
-| 板级引脚 | `Board/.../pinmux.c` | ✅ 完成 | PA24-PA27 → PWM0_P_0..3 |
+| 板级引脚 | `Board/.../pinmux.c` | ✅ 完成 | PA24-PA27 → PWM0_P_0..3, PA28-PA31 → PWM1_P_4..7 |
 | 设计文档 | `doc/hrpwm_driver_design.md` | ✅ 完成 | 包含 SDK 示例参考和高级功能指南 |
+| 调试接口 | `App/Logic/Src/app_debug_rtt.c` | ✅ 完成 | 中断管理、变频/移相/占空比测试 |
 
 > **注意**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API，命名保留为 `hrpwm` 用于接口演进。
 

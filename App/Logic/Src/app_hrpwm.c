@@ -140,3 +140,22 @@ void app_pwm_clear_fault(void) {
     intf_hrpwm_clear_fault(0);
     intf_hrpwm_clear_fault(1);
 }
+
+void pwm_set_phase(uint8_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
+    intf_hrpwm_phase_cfg_t cfg = {
+        .inst = inst,
+        .ref_pair = ref_pair,
+        .target_pair = target_pair,
+        .phase_deg = phase_deg,
+    };
+    intf_hrpwm_set_phase(&cfg);
+}
+
+void pwm_config_phase_limit(float max_phase_deg, float max_duty_ref, float max_duty_target) {
+    intf_hrpwm_phase_limit_t limit = {
+        .max_phase_deg = max_phase_deg,
+        .max_duty_ref = max_duty_ref,
+        .max_duty_target = max_duty_target,
+    };
+    intf_hrpwm_config_phase_limit(0, &limit);
+}

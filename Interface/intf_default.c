@@ -166,6 +166,20 @@ int intf_hrpwm_disable_reload_irq(intf_hrpwm_inst_t inst)
     return -1;
 }
 
+int intf_hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg)
+{
+    if (cfg == NULL || cfg->inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[cfg->inst] == NULL) return -1;
+    if (hrpwm_ops[cfg->inst]->set_phase) return hrpwm_ops[cfg->inst]->set_phase(cfg);
+    return -1;
+}
+
+int intf_hrpwm_config_phase_limit(intf_hrpwm_inst_t inst, const intf_hrpwm_phase_limit_t *limit)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->config_phase_limit) return hrpwm_ops[inst]->config_phase_limit(limit);
+    return -1;
+}
+
 /* ============================================================================
  * GPWM Interface
  * ============================================================================ */

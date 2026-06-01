@@ -10,6 +10,7 @@
 #include "board.h"
 #include "hpm_pwm_drv.h"
 #include "intf_hrpwm.h"
+#include "intf_clock.h"
 #include "SEGGER_RTT.h"
 
 #include <stdarg.h>
@@ -212,4 +213,115 @@ void app_debug_pwm_irq_dump_status(void)
                          pwm_irq_enabled[i] ? "enabled" : "disabled",
                          (unsigned long)pwm_irq_count[i]);
     }
+}
+
+/* ============================================================================
+ * 变频测试
+ * ============================================================================ */
+
+void app_debug_pwm_test_frequency_sweep(uint8_t inst, uint32_t freq_start, uint32_t freq_end, uint32_t freq_step, uint32_t delay_ms)
+{
+    app_debug_printf("[TEST] PWM%d frequency sweep: %lu -> %lu Hz, step=%lu Hz\r\n",
+                     inst, (unsigned long)freq_start, (unsigned long)freq_end, (unsigned long)freq_step);
+
+    int32_t direction = (freq_end > freq_start) ? 1 : -1;
+    uint32_t freq = freq_start;
+
+    while (1) {
+        intf_hrpwm_set_frequency(inst, freq);
+        app_debug_printf("[TEST]   freq = %lu Hz\r\n", (unsigned long)freq);
+
+        intf_clock_delay_ms(delay_ms);
+
+        if (direction > 0) {
+            if (freq >= freq_end) break;
+            freq += freq_step;
+            if (freq > freq_end) freq = freq_end;
+        } else {
+            if (freq <= freq_end) break;
+            if (freq < freq_step) break;
+            freq -= freq_step;
+            if (freq < freq_end) freq = freq_end;
+        }
+    }
+
+    app_debug_printf("[TEST] PWM%d frequency sweep done\r\n", inst);
+}
+
+/* ============================================================================
+ * 移相测试
+ * ============================================================================ */
+
+void app_debug_pwm_test_phase_sweep(uint8_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_start, float phase_end, float phase_step, uint32_t delay_ms)
+{
+    app_debug_printf("[TEST] PWM%d phase sweep: %.1f -> %.1f deg, step=%.1f deg\r\n",
+                     inst, phase_start, phase_end, phase_step);
+
+    intf_hrpwm_phase_cfg_t cfg = {
+        .inst = inst,
+        .ref_pair = ref_pair,
+        .target_pair = target_pair,
+    };
+
+    float phase = phase_start;
+    int32_t direction = (phase_end > phase_start) ? 1 : -1;
+
+    while (1) {
+        cfg.phase_deg = phase;
+        intf_hrpwm_set_phase(&cfg);
+        app_debug_printf("[TEST]   phase = %.1f deg\r\n", phase);
+
+        intf_clock_delay_ms(delay_ms);
+
+        if (direction > 0) {
+            if (phase >= phase_end) break;
+            phase += phase_step;
+            if (phase > phase_end) phase = phase_end;
+        } else {
+            if (phase <= phase_end) break;
+            phase -= phase_step;
+            if (phase < phase_end) phase = phase_end;
+        }
+    }
+
+    app_debug_printf("[TEST] PWM%d phase sweep done\r\n", inst);
+}
+
+/* ============================================================================
+ * 占空比分辨率测试
+ * ============================================================================ */
+
+void app_debug_pwm_test_duty_resolution(uint8_t inst, uint8_t pair, float duty_start, float duty_end, float duty_step, uint32_t delay_ms)
+{
+    app_debug_printf("[TEST] PWM%d pair%d duty resolution test\r\n", inst, pair);
+    app_debug_printf("[TEST]   range: %.4f -> %.4f, step=%.4f\r\n", duty_start, duty_end, duty_step);
+
+#if HRPWM_USE_EXTENDED_COUNTER
+    app_debug_printf("[TEST]   mode: 28-bit counter (higher resolution)\r\n");
+#else
+    app_debug_printf("[TEST]   mode: 24-bit counter (standard)\r\n");
+#endif
+
+    uint8_t ch = pair * 2U + inst * 4U;
+    float duty = duty_start;
+    int32_t direction = (duty_end > duty_start) ? 1 : -1;
+
+    while (1) {
+        intf_hrpwm_set_duty(ch, duty);
+        app_debug_printf("[TEST]   duty = %.4f (%.2f%%)\r\n", duty, duty * 100.0f);
+
+        intf_clock_delay_ms(delay_ms);
+
+        if (direction > 0) {
+            if (duty >= duty_end) break;
+            duty += duty_step;
+            if (duty > duty_end) duty = duty_end;
+        } else {
+            if (duty <= duty_end) break;
+            duty -= duty_step;
+            if (duty < duty_end) duty = duty_end;
+        }
+    }
+
+    app_debug_printf("[TEST] PWM%d pair%d duty resolution test done\r\n", inst, pair);
 }

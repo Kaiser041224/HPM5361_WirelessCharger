@@ -32,4 +32,7 @@ void pwm_resume(void);
 void app_pwm_config_fault(void);
 void app_pwm_clear_fault(void);
 
+void pwm_set_phase(uint8_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg);
+void pwm_config_phase_limit(float max_phase_deg, float max_duty_ref, float max_duty_target);
+
 #endif /* APP_HRPWM_H */
