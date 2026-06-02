@@ -75,6 +75,7 @@ HPM5361_WirelessCharger/
 │           └── app_debug_rtt.c # RTT 调试与HRPWM测试
 ├── doc/                        # 文档
 │   ├── hrpwm_driver_design.md  # HRPWM 驱动设计文档
+│   └── adc_driver_design.md    # ADC 驱动设计文档
 │   ├── hpm_pwm_gptmr_pwm_guide.md  # HPM PWM/GPTMR 使用指南
 │   └── todo.md                 # TODO 清单
 ├── linkers/                    # 链接脚本
@@ -114,7 +115,7 @@ make flash
 | GPWM | `intf_gpwm.h` | ✅ 完成 | GPTMR PWM (ch2..3) + 输入捕获 (ch1) |
 | GPIO | `intf_gpio.h` | ✅ 完成 | GPIO 输入/输出/中断 |
 | Clock | `intf_clock.h` | ✅ 完成 | PLL 配置、延迟函数 |
-| ADC | `intf_adc.h` | ❌ TODO | ADC 采样 |
+| ADC | `intf_adc.h` | ✅ 完成 | ADC16 双实例 (Oneshot/Period/PMT)，含中断回调 |
 | UART | `intf_uart.h` | ❌ TODO | UART 通信 |
 | SPI | `intf_spi.h` | ❌ TODO | SPI 通信 |
 | I2C | `intf_i2c.h` | ❌ TODO | I2C 通信 |
@@ -139,7 +140,9 @@ make flash
   - 占空比分辨率验证
 - 运行态若请求 `>89°` 的连续移相，Driver 会返回 `-1` 进行边界保护。
 
-详细设计文档请参考：`doc/hrpwm_driver_design.md`
+详细设计文档请参考：
+- `doc/hrpwm_driver_design.md`
+- `doc/adc_driver_design.md`
 
 ## 添加新外设接口
 

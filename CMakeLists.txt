@@ -48,6 +48,7 @@ sdk_app_src(Driver/hpm_impl/drv_clock.c)
 sdk_app_src(Driver/hpm_impl/drv_gpio.c)
 sdk_app_src(Driver/hpm_impl/drv_hrpwm.c)
 sdk_app_src(Driver/hpm_impl/drv_gpwm.c)
+sdk_app_src(Driver/hpm_impl/drv_adc.c)
 sdk_app_src(Driver/hpm_impl/drv_ws2812.c)
 sdk_app_src(Driver/WS2812/WS2812.c)
 

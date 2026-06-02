@@ -105,14 +105,12 @@
 
 | 引脚 | ADC实例 | ADC通道 | 物理量 | 采样电路 | 满量程 | 说明 |
 |------|---------|---------|--------|----------|--------|------|
-| **PB08** | ADC0 | CH8 | Buck-Boost输入电流 | 检流电阻 + INA240A2 | ±10A (示例) | 需要确认增益和采样电阻值 |
-| **PB10** | ADC0 | CH10 | 电感电流 IL | 检流电阻 + INA240A2 | ±10A (示例) | Buck-Boost主电流环反馈 |
-| **PB11** | ADC0 | CH11 | Buck-Boost输出电压 | 电阻分压 | 0-30V (示例) | 电压环反馈 |
-| **PB12** | ADC0 | CH12 | 线圈电流 | 采样电路 | 待确认 | 全桥LCC副边电流 |
-| **PB13** | ADC0 | CH13 | LCC谐振电流 | 电流互感器 + 运放 | 待确认 | 全桥LCC原边电流 |
-| **PB14** | ADC0 | CH14 | Buck-Boost输入电压 | 电阻分压 | 0-30V (示例) | 输入电压监测 |
-
-> **注**：ADC通道号需要根据实际硬件原理图和HPM5361引脚复用表确认。上表为推测值，可能需要调整。
+| **PB08** | ADC0 | CH11 | Buck-Boost输入电流 | 检流电阻 + INA240A2 | ±10A (示例) | 已依据 HPM5361 数据手册确认 |
+| **PB10** | ADC0 | CH2 | 电感电流 IL | 检流电阻 + INA240A2 | ±10A (示例) | 已确认 |
+| **PB11** | ADC0 | CH3 | Buck-Boost输出电压 | 电阻分压 | 0-30V (示例) | 已确认 |
+| **PB12** | ADC0 | CH4 | 线圈电流 | 采样电路 | 待确认 | 已确认 |
+| **PB13** | ADC0 | CH5 | LCC谐振电流 | 电流互感器 + 运放 | 待确认 | 已确认 |
+| **PB14** | ADC0 | CH6 | Buck-Boost输入电压 | 电阻分压 | 0-30V (示例) | 已确认 |
 
 #### 2.2.3 采样电路参数
 
@@ -125,24 +123,20 @@
 | **运放** | 带宽 | >1MHz | 信号调理 |
 | **分压电阻** | 比例 | 1:10 或 1:20 | 匹配ADC量程 |
 
-#### 2.2.4 ADC配置建议
+#### 2.2.4 ADC配置
 
 ```c
-/* ADC通道定义 */
-#define ADC_CH_BUCK_BOOST_I_IN    (8U)    /* PB08: Buck-Boost输入电流 */
-#define ADC_CH_INDUCTOR_I         (10U)   /* PB10: 电感电流 */
-#define ADC_CH_BUCK_BOOST_V_OUT   (11U)   /* PB11: Buck-Boost输出电压 */
-#define ADC_CH_COIL_I             (12U)   /* PB12: 线圈电流 */
-#define ADC_CH_LCC_RESONANT_I     (13U)   /* PB13: LCC谐振电流 */
-#define ADC_CH_BUCK_BOOST_V_IN    (14U)   /* PB14: Buck-Boost输入电压 */
+/* ADC通道定义（依据 HPM5361 数据手册）*/
+#define ADC_CH_BUCK_BOOST_I_IN    (11U)   /* PB08: Buck-Boost输入母线电流  → ADC ch11 */
+#define ADC_CH_INDUCTOR_I         (2U)    /* PB10: Buck-Boost电感电流     → ADC ch2  */
+#define ADC_CH_BUCK_BOOST_V_OUT   (3U)    /* PB11: Buck-Boost输出电压     → ADC ch3  */
+#define ADC_CH_COIL_I             (4U)    /* PB12: 发射线圈电流           → ADC ch4  */
+#define ADC_CH_LCC_RESONANT_I     (5U)    /* PB13: LCC谐振电流            → ADC ch5  */
+#define ADC_CH_BUCK_BOOST_V_IN    (6U)    /* PB14: Buck-Boost输入电压     → ADC ch6  */
 
-/* ADC采样时间配置 */
-#define ADC_SAMPLE_CYCLE_CURRENT  (20U)   /* 电流采样周期 */
-#define ADC_SAMPLE_CYCLE_VOLTAGE  (20U)   /* 电压采样周期 */
-
-/* ADC参考电压 */
-#define ADC_VREF                  (3.3f)  /* ADC参考电压 3.3V */
-#define ADC_RESOLUTION            (4096)  /* 12-bit分辨率 */
+/* ADC 配置（本项目统一使用 16-bit 分辨率）*/
+#define ADC_VREF_MV               (3300.0f)       /* 参考电压 mV */
+#define ADC_RES_MAX               (65535U)        /* 16-bit 满量程 */
 ```
 
 ### 2.3 TRGM资源

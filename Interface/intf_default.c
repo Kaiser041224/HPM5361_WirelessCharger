@@ -263,42 +263,78 @@ int intf_gpwm_capture_poll(intf_gpwm_ch_t ch, intf_gpwm_capture_t *capture)
  * ADC Interface
  * ============================================================================ */
 
-static const intf_adc_ops_t *adc_ops = NULL;
+static const intf_adc_t *adc_ops[INTF_ADC_INSTANCE_COUNT] = {NULL};
 
-int intf_adc_register(const intf_adc_ops_t *ops)
+int intf_adc_register(const intf_adc_t *ops)
 {
-    if (ops == NULL) return -1;
-    adc_ops = ops;
+    if (ops == NULL || ops->instance_id >= INTF_ADC_INSTANCE_COUNT) return -1;
+    adc_ops[ops->instance_id] = ops;
     return 0;
+}
+
+static const intf_adc_t *adc_get_ops_by_ch(intf_adc_ch_t ch)
+{
+    uint8_t inst = INTF_ADC_CH_INST(ch);
+    if (inst >= INTF_ADC_INSTANCE_COUNT) return NULL;
+    return adc_ops[inst];
 }
 
 int intf_adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
 {
-    if (adc_ops && adc_ops->init) return adc_ops->init(ch, cfg);
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->init) return ops->init(ch, cfg);
     return -1;
 }
 
 int intf_adc_read(intf_adc_ch_t ch, uint16_t *value)
 {
-    if (adc_ops && adc_ops->read) return adc_ops->read(ch, value);
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->read) return ops->read(ch, value);
     return -1;
 }
 
 int intf_adc_read_voltage(intf_adc_ch_t ch, float *voltage_mv)
 {
-    if (adc_ops && adc_ops->read_voltage) return adc_ops->read_voltage(ch, voltage_mv);
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->read_voltage) return ops->read_voltage(ch, voltage_mv);
     return -1;
 }
 
 int intf_adc_start(intf_adc_ch_t ch)
 {
-    if (adc_ops && adc_ops->start) return adc_ops->start(ch);
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->start) return ops->start(ch);
     return -1;
 }
 
 int intf_adc_stop(intf_adc_ch_t ch)
 {
-    if (adc_ops && adc_ops->stop) return adc_ops->stop(ch);
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->stop) return ops->stop(ch);
+    return -1;
+}
+
+void intf_adc_set_vref(intf_adc_ch_t ch, float vref_mv)
+{
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->set_vref) ops->set_vref(vref_mv);
+}
+
+extern void adc_wdog_reenable(uint8_t inst, uint8_t ch);
+
+void intf_adc_wdog_reenable(intf_adc_ch_t ch)
+{
+    uint8_t inst   = INTF_ADC_CH_INST(ch);
+    uint8_t ch_idx = INTF_ADC_CH_IDX(ch);
+    if (inst < INTF_ADC_INSTANCE_COUNT) {
+        adc_wdog_reenable(inst, ch_idx);
+    }
+}
+
+int intf_adc_calibrate(intf_adc_ch_t ch)
+{
+    const intf_adc_t *ops = adc_get_ops_by_ch(ch);
+    if (ops && ops->calibrate) return ops->calibrate();
     return -1;
 }
 
