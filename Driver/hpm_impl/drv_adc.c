@@ -10,7 +10,9 @@
 #include "hpm_adc16_drv.h"
 #include "hpm_clock_drv.h"
 #include "hpm_interrupt.h"
+#include "hpm_misc.h"
 #include "hpm_soc_irq.h"
+#include "hpm_sysctl_drv.h"
 
 #include <stddef.h>
 
@@ -194,11 +196,23 @@ static void adc_generic_isr(uint8_t inst)
         if (ai->pmt.cb && ai->pmt.ch_count > 0) {
             uint16_t values[4];
             uint8_t  valid = 0;
-            for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
-                if (adc16_get_oneshot_result(base, ai->pmt.ch_list[i], &values[i]) == status_success) {
+
+            if (ai->dma.active) {
+                adc16_pmt_dma_data_t *dma = (adc16_pmt_dma_data_t *)ai->dma.buff;
+                for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
+                    values[valid] = dma[i].result;
                     valid++;
                 }
+            } else {
+                for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
+                    uint32_t bus_res = base->BUS_RESULT[ai->pmt.ch_list[i]];
+                    if (ADC16_BUS_RESULT_VALID_GET(bus_res)) {
+                        values[valid] = ADC16_BUS_RESULT_CHAN_RESULT_GET(bus_res);
+                        valid++;
+                    }
+                }
             }
+
             if (valid > 0) {
                 ai->pmt.cb(INTF_ADC_CH(inst, ai->pmt.trig_ch), values, valid, ai->pmt.cb_user_data);
             }
@@ -224,8 +238,9 @@ static void adc_generic_isr(uint8_t inst)
     if (wdog_status) {
         for (uint8_t ch = 0; ch < ADC_MAX_CHANNELS; ch++) {
             if ((wdog_status & (1u << ch)) && ai->wdog.enabled[ch]) {
-                uint16_t val;
-                if (adc16_get_oneshot_result(base, ch, &val) == status_success) {
+                uint32_t bus_res = base->BUS_RESULT[ch];
+                if (ADC16_BUS_RESULT_VALID_GET(bus_res)) {
+                    uint16_t val = ADC16_BUS_RESULT_CHAN_RESULT_GET(bus_res);
                     if (ai->wdog.cb) {
                         ai->wdog.cb(INTF_ADC_CH(inst, ch), val, ai->wdog.cb_user_data);
                     }
@@ -287,7 +302,7 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
         adc_cfg.res        = adc_map_resolution(cfg->resolution);
         adc_cfg.conv_mode  = adc_map_mode(cfg->mode);
         adc_cfg.adc_clk_div = (adc16_clock_divider_t)adc_calc_clock_div(inst, cfg->sample_rate_hz, cfg->clock_div);
-        adc_cfg.wait_dis   = false;   /* blocking mode for multi-channel oneshot */
+        adc_cfg.wait_dis   = true;   /* nonblocking: safe for ISR, no bus deadlock */
 
         if (adc_cfg.conv_mode == adc16_conv_mode_oneshot) {
             adc_cfg.sel_sync_ahb = true;
@@ -357,7 +372,8 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
             ai->dma.active = true;
             ai->dma.buff   = cfg->dma_buff;
             ai->dma.len    = cfg->dma_buff_len;
-            adc16_init_pmt_dma(ai->base, (uint32_t)cfg->dma_buff);
+            adc16_init_pmt_dma(ai->base,
+                core_local_mem_to_sys_address(0, (uint32_t)cfg->dma_buff));
         }
 
         adc_enable_instance_irq(inst);
@@ -470,8 +486,17 @@ static int adc_read(intf_adc_ch_t ch, uint16_t *value)
     case INTF_ADC_MODE_PERIOD:
         stat = adc16_get_prd_result(ai->base, ch_idx, value);
         break;
-    case INTF_ADC_MODE_PMT:
     case INTF_ADC_MODE_ONESHOT:
+        stat = adc16_get_oneshot_result(ai->base, ch_idx, value);
+        if (stat != status_success) {
+            uint32_t retry = 512;
+            while (retry--) {
+                stat = adc16_get_oneshot_result(ai->base, ch_idx, value);
+                if (stat == status_success) break;
+            }
+        }
+        break;
+    case INTF_ADC_MODE_PMT:
     default:
         stat = adc16_get_oneshot_result(ai->base, ch_idx, value);
         break;
@@ -568,7 +593,7 @@ static int adc_calibrate(void)
         adc_cfg.res        = adc_map_resolution(ai->resolution);
         adc_cfg.conv_mode  = adc_map_mode(ai->mode);
         adc_cfg.adc_clk_div = (adc16_clock_divider_t)ADC_DEFAULT_CLOCK_DIV;
-        adc_cfg.wait_dis   = false;
+        adc_cfg.wait_dis   = true;
 
         if (adc_cfg.conv_mode == adc16_conv_mode_oneshot) {
             adc_cfg.sel_sync_ahb = true;

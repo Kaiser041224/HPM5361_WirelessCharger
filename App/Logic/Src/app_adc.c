@@ -8,26 +8,28 @@
 #include "app_adc.h"
 
 #include "intf_adc.h"
+#include "intf_hrpwm.h"
+#include "intf_trgm.h"
 #include <stddef.h>
 
 static const uint8_t channel_to_hw[ADC_CH_COUNT] = {
+    [ADC_CH_V_IN]   = 6,    /* PB14 */
     [ADC_CH_I_IN]   = 11,   /* PB08 */
     [ADC_CH_I_L]    = 2,    /* PB10 */
     [ADC_CH_V_LINK] = 3,    /* PB11 */
     [ADC_CH_I_COIL] = 4,    /* PB12 */
-    [ADC_CH_I_RES]  = 5,    /* PB13 */
-    [ADC_CH_V_IN]   = 6,    /* PB14 */
+    [ADC_CH_I_LF]  = 5,    /* PB13 */
 };
 
-/* ADC0: 电流内环 (I_IN + I_L, 最高优先级采样)
- * ADC1: 电压/Monitor (V_LINK + I_COIL + I_RES + V_IN) */
+/* ADC0 (PWM0): V_IN + I_IN + I_L + V_LINK
+ * ADC1 (PWM1): I_COIL + I_RES */
 static const uint8_t channel_to_inst[ADC_CH_COUNT] = {
+    [ADC_CH_V_IN]   = 0,
     [ADC_CH_I_IN]   = 0,
     [ADC_CH_I_L]    = 0,
-    [ADC_CH_V_LINK] = 1,
+    [ADC_CH_V_LINK] = 0,
     [ADC_CH_I_COIL] = 1,
-    [ADC_CH_I_RES]  = 1,
-    [ADC_CH_V_IN]   = 1,
+    [ADC_CH_I_LF]  = 1,
 };
 
 extern void hpm_adc_driver_register(void);
@@ -160,4 +162,51 @@ void app_adc_wdog_reenable(adc_channel_t ch)
 {
     if (ch >= ADC_CH_COUNT) return;
     intf_adc_wdog_reenable(INTF_ADC_CH(channel_to_inst[ch], channel_to_hw[ch]));
+}
+
+/* ========================================================================
+ * PWM→TRGM→ADC PMT 联动初始化
+ * ======================================================================== */
+
+void app_adc_pwm_trig_init(
+    intf_adc_pmt_cb_t cb0, void *user0,
+    intf_adc_pmt_cb_t cb1, void *user1)
+{
+    hpm_adc_driver_register();
+
+    /* PWM0/PWM1: CMP8 配置为 50% 占空比触发信号 */
+    intf_hrpwm_config_trigger_cmp(0, 8, 0.5f);
+    intf_hrpwm_config_trigger_cmp(1, 8, 0.5f);
+
+    /* TRGM: PWM0 CH8REF → ADC TRG0A, PWM1 CH8REF → ADC TRG1A */
+    intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
+    intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
+
+    /* ADC0 PMT (TRG0A): V_IN(ch6) + I_IN(ch11) + I_L(ch2) + V_LINK(ch3) */
+    intf_adc_cfg_t cfg0 = {
+        .resolution      = INTF_ADC_RES_DEFAULT,
+        .mode            = INTF_ADC_MODE_PMT,
+        .sample_cycle    = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+        .clock_div       = INTF_ADC_DEFAULT_CLOCK_DIV,
+        .pmt_trig_ch     = 0,   /* TRG0A  */
+        .pmt_ch_count    = 4,
+        .pmt_ch_list     = {6, 11, 2, 3},
+        .pmt_cb          = cb0,
+        .pmt_cb_user_data = user0,
+    };
+    intf_adc_init(INTF_ADC_CH(0, 0), &cfg0);
+
+    /* ADC1 PMT (TRG1A): I_COIL(ch4) + I_RES(ch5) */
+    intf_adc_cfg_t cfg1 = {
+        .resolution      = INTF_ADC_RES_DEFAULT,
+        .mode            = INTF_ADC_MODE_PMT,
+        .sample_cycle    = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+        .clock_div       = INTF_ADC_DEFAULT_CLOCK_DIV,
+        .pmt_trig_ch     = 3,   /* TRG1A  */
+        .pmt_ch_count    = 2,
+        .pmt_ch_list     = {4, 5},
+        .pmt_cb          = cb1,
+        .pmt_cb_user_data = user1,
+    };
+    intf_adc_init(INTF_ADC_CH(1, 0), &cfg1);
 }

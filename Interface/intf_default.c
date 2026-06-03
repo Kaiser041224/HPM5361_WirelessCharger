@@ -180,6 +180,13 @@ int intf_hrpwm_config_phase_limit(intf_hrpwm_inst_t inst, const intf_hrpwm_phase
     return -1;
 }
 
+int intf_hrpwm_config_trigger_cmp(intf_hrpwm_inst_t inst, uint8_t cmp_index, float position_ratio)
+{
+    if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;
+    if (hrpwm_ops[inst]->config_trigger_cmp) return hrpwm_ops[inst]->config_trigger_cmp(cmp_index, position_ratio);
+    return -1;
+}
+
 /* ============================================================================
  * GPWM Interface
  * ============================================================================ */

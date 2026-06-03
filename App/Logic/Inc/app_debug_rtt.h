@@ -47,4 +47,7 @@ void app_debug_hrpwm_run_tests(void);
 void app_debug_adc_dump_channels(void);
 void app_debug_adc_run_tests(void);
 
+/* ADC PMT 联动测试 */
+void app_debug_adc_pmt_run_tests(void);
+
 #endif /* APP_DEBUG_RTT_H */

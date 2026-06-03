@@ -12,11 +12,18 @@
 #include "app_hrpwm.h"
 #include "board.h"
 #include "hpm_pwm_drv.h"
+#include "intf_adc.h"
 #include "intf_clock.h"
 #include "intf_hrpwm.h"
+#include "intf_trgm.h"
 
 #include <stdarg.h>
 #include <stdio.h>
+
+extern void hpm_adc_driver_register(void);
+
+ATTR_PLACE_AT_NONCACHEABLE_WITH_ALIGNMENT(4) static uint32_t pmt_dma0[48];
+ATTR_PLACE_AT_NONCACHEABLE_WITH_ALIGNMENT(4) static uint32_t pmt_dma1[48];
 
 void app_debug_init(void) {}
 
@@ -396,50 +403,153 @@ void app_debug_hrpwm_run_tests(void) {
  * ADC 测试
  * ============================================================================ */
 
-static const char *adc_ch_names[ADC_CH_COUNT] = {
-    [ADC_CH_I_IN]   = "I_IN  ",
-    [ADC_CH_I_L]    = "I_L   ",
-    [ADC_CH_V_LINK] = "V_LINK",
-    [ADC_CH_I_COIL] = "I_COIL",
-    [ADC_CH_I_RES]  = "I_RES ",
-    [ADC_CH_V_IN]   = "V_IN  ",
+static const char* adc_ch_names[ADC_CH_COUNT] = {
+    [ADC_CH_V_IN] = "V_IN  ",   [ADC_CH_I_IN] = "I_IN  ",
+    [ADC_CH_I_L] = "I_L   ",    [ADC_CH_V_LINK] = "V_LINK",
+    [ADC_CH_I_COIL] = "I_COIL", [ADC_CH_I_LF] = "I_LF  ",
 };
 
-#define ADC_VREF_MV   (3300.0f)
-#define ADC_MAX_RAW   (65535.0f)
+#define ADC_VREF_MV (3300.0f)
+#define ADC_MAX_RAW (65535.0f)
 
-void app_debug_adc_dump_channels(void)
-{
+void app_debug_adc_dump_channels(void) {
     app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
 
-    for (adc_channel_t ch = ADC_CH_I_IN; ch < ADC_CH_COUNT; ch++) {
+    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
         uint16_t raw = app_adc_read_raw(ch);
         float mv = (float)raw * ADC_VREF_MV / ADC_MAX_RAW;
 
-        app_debug_printf("[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n",
-                         adc_ch_names[ch], (ch <= ADC_CH_I_L) ? 0 : 1,
-                         raw, raw, mv);
+        app_debug_printf(
+            "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch],
+            (ch <= ADC_CH_V_LINK) ? 0 : 1, raw, raw, mv);
     }
 }
 
-void app_debug_adc_run_tests(void)
-{
+void app_debug_adc_run_tests(void) {
     app_debug_write("\r\n[RTT] === ADC Oneshot Channel Scan ===\r\n");
 
     uint16_t val[ADC_CH_COUNT];
 
     /* oneshot bus mode: x3 reads per channel to flush crosstalk */
-    for (adc_channel_t ch = ADC_CH_I_IN; ch < ADC_CH_COUNT; ch++) {
+    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
         app_adc_read_raw(ch);
         app_adc_read_raw(ch);
         val[ch] = app_adc_read_raw(ch);
     }
 
     app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
-    for (adc_channel_t ch = ADC_CH_I_IN; ch < ADC_CH_COUNT; ch++) {
+    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
         float mv = (float)val[ch] * 3300.0f / 65535.0f;
-        app_debug_printf("[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n",
-                         adc_ch_names[ch], (ch <= ADC_CH_I_L) ? 0 : 1,
-                         val[ch], val[ch], mv);
+        app_debug_printf(
+            "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch],
+            (ch <= ADC_CH_V_LINK) ? 0 : 1, val[ch], val[ch], mv);
+    }
+}
+
+/* ============================================================================
+ * ADC PMT 联动测试
+ * ============================================================================ */
+
+static volatile uint16_t pmt_val_adc0[4];
+static volatile uint16_t pmt_val_adc1[2];
+static volatile bool pmt_ready_adc0;
+static volatile bool pmt_ready_adc1;
+
+static void pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t* v, uint8_t n, void* u) {
+    (void)trig;
+    (void)u;
+    if (n >= 4) {
+        pmt_val_adc0[0] = v[0]; /* ch6=V_IN */
+        pmt_val_adc0[1] = v[1]; /* ch11=I_IN */
+        pmt_val_adc0[2] = v[2]; /* ch2=I_L */
+        pmt_val_adc0[3] = v[3]; /* ch3=V_LINK */
+        pmt_ready_adc0 = true;
+    }
+}
+
+static void pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t* v, uint8_t n, void* u) {
+    (void)trig;
+    (void)u;
+    if (n >= 2) {
+        pmt_val_adc1[0] = v[0]; /* ch4=I_COIL */
+        pmt_val_adc1[1] = v[1]; /* ch5=I_LF */
+        pmt_ready_adc1 = true;
+    }
+}
+
+void app_debug_adc_pmt_run_tests(void) {
+    static bool initialized = false;
+
+    if (!initialized) {
+        initialized = true;
+        app_debug_write("\r\n[RTT] === ADC PMT + PWM + TRGM Test ===\r\n");
+
+        pwm_init();
+        intf_hrpwm_config_trigger_cmp(0, 8, 0.5f);
+        intf_hrpwm_config_trigger_cmp(1, 8, 0.5f);
+        intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
+        intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI0B);
+
+        hpm_adc_driver_register();
+
+        /* ADC0 TRG0A: V_IN(ch6)+I_IN(ch11)+I_L(ch2)+V_LINK(ch3) */
+        intf_adc_cfg_t cfg0 = {
+            .resolution = INTF_ADC_RES_DEFAULT,
+            .mode = INTF_ADC_MODE_PMT,
+            .sample_cycle = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+            .clock_div = INTF_ADC_DEFAULT_CLOCK_DIV,
+            .dma_en = true,
+            .dma_buff = pmt_dma0,
+            .dma_buff_len = 48,
+            .pmt_trig_ch = 0,
+            .pmt_ch_count = 4,
+            .pmt_ch_list = {6, 11, 2, 3},
+            .pmt_cb = pmt_cb_adc0,
+        };
+        intf_adc_init(INTF_ADC_CH(0, 0), &cfg0);
+
+        /* ADC1 TRG0B: I_COIL(ch4)+I_LF(ch5) */
+        intf_adc_cfg_t cfg1 = {
+            .resolution = INTF_ADC_RES_DEFAULT,
+            .mode = INTF_ADC_MODE_PMT,
+            .sample_cycle = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+            .clock_div = INTF_ADC_DEFAULT_CLOCK_DIV,
+            .dma_en = true,
+            .dma_buff = pmt_dma1,
+            .dma_buff_len = 48,
+            .pmt_trig_ch = 1,
+            .pmt_ch_count = 2,
+            .pmt_ch_list = {4, 5},
+            .pmt_cb = pmt_cb_adc1,
+        };
+        intf_adc_init(INTF_ADC_CH(1, 0), &cfg1);
+
+        app_debug_write("[ADC-PMT] initialized\r\n");
+    }
+
+    if (pmt_ready_adc0 || pmt_ready_adc1) {
+        if (pmt_ready_adc0 && pmt_ready_adc1) {
+            pmt_ready_adc0 = false;
+            pmt_ready_adc1 = false;
+
+            uint16_t val[ADC_CH_COUNT];
+            val[ADC_CH_V_IN] = pmt_val_adc0[0];
+            val[ADC_CH_I_IN] = pmt_val_adc0[1];
+            val[ADC_CH_I_L] = pmt_val_adc0[2];
+            val[ADC_CH_V_LINK] = pmt_val_adc0[3];
+            val[ADC_CH_I_COIL] = pmt_val_adc1[0];
+            val[ADC_CH_I_LF] = pmt_val_adc1[1];
+            app_debug_write("[ADC]==========================================\r\n");
+
+            app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
+            /* ADC0 */
+            for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
+                int inst = (ch >= ADC_CH_I_COIL) ? 1 : 0;
+                float mv = (float)val[ch] * 3300.0f / 65535.0f;
+                app_debug_printf(
+                    "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch], inst, val[ch],
+                    val[ch], mv);
+            }
+        }
     }
 }

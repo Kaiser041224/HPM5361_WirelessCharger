@@ -2,7 +2,10 @@
 
 本文描述当前工程中 ADC16 驱动的设计边界、接口契约、硬件映射和开发指南。
 
-> **当前实现状态**：驱动已完成，通过硬件实测验证。支持双 ADC 实例（ADC0/ADC1）、四种模式（Oneshot / Period / PMT / Sequence+DMA）、Watchdog 阈值告警、自动偏移校准、VREF 动态配置。Oneshot bus 模式仅支持单通道（硬件限制），多通道需用 Sequence 或 PMT。温度传感器作为独立外设，暂未集成。
+> **当前实现状态**：驱动已完成，通过硬件实测验证。
+> - ADC0 PMT + PWM + TRGM 联动：✅ 正常工作（200kHz 触发, 4 通道 DMA）
+> - ADC1 PMT：⚠️ ISR/回调整常触发，但 DMA 缓冲区数据不刷新（已知问题）
+> - Oneshot / Period / Seq+DMA / Watchdog / 自动校准 / VREF 动态配置均已可用
 
 ---
 
@@ -98,6 +101,7 @@ void hpm_adc_driver_register(void);
 | **校准自动触发** | `adc16_init()` 内部自动调用 `adc16_do_calibration()`，首次 init 即校准。重校准调用 `intf_adc_calibrate()` |
 | **双实例独立** | ADC0 和 ADC1 完全独立：各自分辨率/模式/时钟分频。同一物理引脚可同时被两个实例采样 |
 | **引脚≠通道号** | HPM5361 引脚后缀不等于 ADC 通道号（如 PB08→ch11），需查数据手册 |
+| **ADC1 PMT DMA** | ⚠️ 已知问题：ADC1 PMT 回调正常触发但 DMA 缓冲区数据不刷新，需后续排查 |
 
 ---
 

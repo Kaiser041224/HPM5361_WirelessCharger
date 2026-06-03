@@ -2,7 +2,6 @@
 
 #include "intf_clock.h"
 
-#include "app_adc.h"
 #include "app_buzzer.h"
 #include "app_debug_rtt.h"
 #include "app_gpio.h"
@@ -19,10 +18,8 @@ int main(void) {
 
     app_debug_write("\r\n[RTT] HPM5361 WirelessCharger started\r\n");
 
-    app_adc_init();
-
     while (1) {
-        app_debug_adc_run_tests();
+        app_debug_adc_pmt_run_tests();
         intf_clock_delay_ms(1000);
     }
 
