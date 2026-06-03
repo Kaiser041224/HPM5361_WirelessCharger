@@ -25,6 +25,8 @@ void intf_clock_init(void)
     clock_add_to_group(clock_gpio, 0);
     clock_add_to_group(clock_hdma, 0);
     clock_add_to_group(clock_xpi0, 0);
+    clock_add_to_group(clock_adc0, 0);
+    clock_add_to_group(clock_adc1, 0);
 
     clock_connect_group_to_cpu(0, 0);
 

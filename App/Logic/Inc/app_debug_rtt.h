@@ -43,4 +43,8 @@ void app_debug_pwm_test_duty_resolution(uint8_t inst, uint8_t pair, float duty_s
 /* HRPWM综合验证测试 */
 void app_debug_hrpwm_run_tests(void);
 
+/* ADC测试 */
+void app_debug_adc_dump_channels(void);
+void app_debug_adc_run_tests(void);
+
 #endif /* APP_DEBUG_RTT_H */

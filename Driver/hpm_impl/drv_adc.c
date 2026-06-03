@@ -14,11 +14,11 @@
 
 #include <stddef.h>
 
-#define ADC_DEFAULT_VREF_MV       (3300.0f)
-#define ADC_DEFAULT_SAMPLE_CYCLE  (20U)
-#define ADC_DEFAULT_CLOCK_DIV     (4U)
+#define ADC_DEFAULT_VREF_MV       INTF_ADC_DEFAULT_VREF_MV
+#define ADC_DEFAULT_SAMPLE_CYCLE  INTF_ADC_DEFAULT_SAMPLE_CYCLE
+#define ADC_DEFAULT_CLOCK_DIV     INTF_ADC_DEFAULT_CLOCK_DIV
 #define ADC_MAX_CLOCK_DIV         (16U)
-#define ADC_MAX_CLOCK_HZ          (50000000U)  /* per datasheet: ≤ 50 MHz */
+#define ADC_MAX_CLOCK_HZ          (50000000U)
 #define ADC_CONV_CYCLES           (25U)
 #define ADC_MAX_CHANNELS          (16U)
 #define ADC_PMT_MAX_TRIG          (11U)
@@ -283,9 +283,11 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
 
         adc16_config_t adc_cfg;
         adc16_get_default_config(&adc_cfg);
-        adc_cfg.res         = adc_map_resolution(cfg->resolution);
-        adc_cfg.conv_mode   = adc_map_mode(cfg->mode);
+
+        adc_cfg.res        = adc_map_resolution(cfg->resolution);
+        adc_cfg.conv_mode  = adc_map_mode(cfg->mode);
         adc_cfg.adc_clk_div = (adc16_clock_divider_t)adc_calc_clock_div(inst, cfg->sample_rate_hz, cfg->clock_div);
+        adc_cfg.wait_dis   = false;   /* blocking mode for multi-channel oneshot */
 
         if (adc_cfg.conv_mode == adc16_conv_mode_oneshot) {
             adc_cfg.sel_sync_ahb = true;
@@ -295,6 +297,8 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
         }
 
         if (adc16_init(base, &adc_cfg) != status_success) return -1;
+
+        base->ANA_CTRL0 |= ADC16_ANA_CTRL0_ADC_CLK_ON_MASK;
 
         ai->initialized = true;
         ai->resolution  = cfg->resolution;
@@ -432,7 +436,6 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
     if (adc16_init_channel(ai->base, &ch_cfg) != status_success) return -1;
 
     if (ai->mode == INTF_ADC_MODE_ONESHOT) {
-        adc16_set_nonblocking_read(ai->base);
 #if defined(ADC_SOC_BUSMODE_ENABLE_CTRL_SUPPORT) && ADC_SOC_BUSMODE_ENABLE_CTRL_SUPPORT
         adc16_enable_oneshot_mode(ai->base);
 #endif
@@ -565,6 +568,7 @@ static int adc_calibrate(void)
         adc_cfg.res        = adc_map_resolution(ai->resolution);
         adc_cfg.conv_mode  = adc_map_mode(ai->mode);
         adc_cfg.adc_clk_div = (adc16_clock_divider_t)ADC_DEFAULT_CLOCK_DIV;
+        adc_cfg.wait_dis   = false;
 
         if (adc_cfg.conv_mode == adc16_conv_mode_oneshot) {
             adc_cfg.sel_sync_ahb = true;
@@ -575,6 +579,8 @@ static int adc_calibrate(void)
 
         if (adc16_init(ai->base, &adc_cfg) != status_success) {
             ret = -1;
+        } else {
+            ai->base->ANA_CTRL0 |= ADC16_ANA_CTRL0_ADC_CLK_ON_MASK;
         }
     }
     return ret;

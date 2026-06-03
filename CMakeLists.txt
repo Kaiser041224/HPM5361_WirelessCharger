@@ -60,6 +60,7 @@ sdk_app_src(App/Logic/Src/app_gpio.c)
 sdk_app_src(App/Logic/Src/app_buzzer.c)
 sdk_app_src(App/Logic/Src/app_ws2812.c)
 sdk_app_src(App/Logic/Src/app_hrpwm.c)
+sdk_app_src(App/Logic/Src/app_adc.c)
 sdk_app_src(App/Logic/Src/app_debug_rtt.c)
 
 # Main entry

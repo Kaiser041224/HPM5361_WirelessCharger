@@ -2,7 +2,7 @@
 
 本文描述当前工程中 ADC16 驱动的设计边界、接口契约、硬件映射和开发指南。
 
-> **当前实现状态**：驱动已完成。支持双 ADC 实例（ADC0/ADC1）、四种模式（Oneshot / Period / PMT / Sequence+DMA）、Watchdog 阈值告警、自动偏移校准（init 自动触发 + 运行时重校准）、VREF 动态配置。温度传感器作为独立外设，暂未集成。
+> **当前实现状态**：驱动已完成，通过硬件实测验证。支持双 ADC 实例（ADC0/ADC1）、四种模式（Oneshot / Period / PMT / Sequence+DMA）、Watchdog 阈值告警、自动偏移校准、VREF 动态配置。Oneshot bus 模式仅支持单通道（硬件限制），多通道需用 Sequence 或 PMT。温度传感器作为独立外设，暂未集成。
 
 ---
 
@@ -87,6 +87,17 @@ void hpm_adc_driver_register(void);
 | `clock_div=4`（默认） | 30 MHz | ~1.37 µs | 通用 |
 | `clock_div=3`（最快） | 40 MHz | ~1.03 µs | 控制环极速 |
 | `clock_div=8, sample_cycle=40` | 15 MHz | ~4.07 µs | 高精度/低噪声 |
+
+### 2.6 硬件行为注意事项 (实测验证)
+
+| 事项 | 说明 |
+|:---|:---|
+| **ADC 时钟使能** | `adc16_init()` 和校准完成后会关闭 `ANA_CTRL0.ADC_CLK_ON`，驱动在 init/calibrate 末尾显式重新打开，否则转换不工作 |
+| **默认 nonblocking** | SDK `adc16_get_default_config()` 默认 `wait_dis=true`，驱动显式设为 `false`（blocking），保证 oneshot 读稳定 |
+| **Oneshot 单通道** | Bus 模式下 BUS_RESULT 共享同一转换输出，切换通道后前 2 次读数无效，第 3 次起稳定。多通道请用 Sequence 或 PMT |
+| **校准自动触发** | `adc16_init()` 内部自动调用 `adc16_do_calibration()`，首次 init 即校准。重校准调用 `intf_adc_calibrate()` |
+| **双实例独立** | ADC0 和 ADC1 完全独立：各自分辨率/模式/时钟分频。同一物理引脚可同时被两个实例采样 |
+| **引脚≠通道号** | HPM5361 引脚后缀不等于 ADC 通道号（如 PB08→ch11），需查数据手册 |
 
 ---
 
@@ -249,7 +260,7 @@ PB08 ──→ ch11 ──┬── ADC0  (16-bit, 高频)  ← INTF_ADC_CH(0, 1
 |------|-----------|-------------------|------|
 | PB08 | 11 | ADC0 / ADC1 | 模拟输入 |
 | PB10 | 2 | ADC0 / ADC1 | 模拟输入 |
-| PB11 | 3 | ADC0 / ADC1 | 模拟输入 |
+| PB11 | 3 | ADC0 / ADC1 | V_LINK (Buck-Boost输出 / LCC全桥输入) |
 | PB12 | 4 | ADC0 / ADC1 | 模拟输入 |
 | PB13 | 5 | ADC0 / ADC1 | 模拟输入 |
 | PB14 | 6 | ADC0 / ADC1 | 模拟输入 |
@@ -332,8 +343,17 @@ static adc_inst_t adc_instances[INTF_ADC_INSTANCE_COUNT];
 adc16_get_oneshot_result(adc_inst->base, ch_idx, value);
 ```
 
-每次调用触发一次硬件转换，阻塞等待结果返回。
-不需要显式 `start()` / `stop()`——这些调用在 Oneshot 模式下为无操作。
+每次调用触发一次硬件转换，**阻塞等待**结果返回（`wait_dis=false`）。
+
+**重要限制：Oneshot bus 模式仅支持反复读取同一通道。** 切换通道后再读，前 1-2 次为残留值，第 3 次起稳定。这是 HPM ADC16 硬件特性——BUS_RESULT 寄存器在 bus 模式下共享同一个转换输出。SDK 官方示例也只用单通道。多通道扫描请使用 Sequence 或 PMT 模式。
+
+App 层 `adc_init()` 末尾会自动冲刷所有通道的残留值（dummy read × 6）。运行时如需切换通道读取，建议每条通道连续读 3 次、取最后一次：
+
+```c
+adc_read_raw(ch);   // discard: channel switch
+adc_read_raw(ch);   // discard: conversion settle
+val = adc_read_raw(ch);  // keep: valid
+```
 
 ### 5.4 Period 读取
 
@@ -489,6 +509,8 @@ App 初始化
 - PMT 参数校验：`pmt_trig_ch < 11`，`pmt_ch_count` 1–4。
 - ISR 中断优先级默认 1，可调整。
 - WDOG 回调后自动关闭该通道中断，防止 flooding，需手动 `intf_adc_wdog_reenable()` 重新使能。
+- ADC 时钟显式使能：`adc16_init()` 会关闭时钟，驱动在 init/calibrate 后重新打开 `ANA_CTRL0.ADC_CLK_ON`。
+- Blocking 模式：显式 `wait_dis = false`，覆盖 SDK 默认 nonblocking，避免 oneshot 读数不稳定。
 
 **当前仍未完成的 ADC 能力**：
 
@@ -548,7 +570,7 @@ void app_adc_init_oneshot(void)
     /* 逐一初始化各通道 (同一实例共享 resolution/mode) */
     intf_adc_init(INTF_ADC_CH(0, 11), &cfg);  // PB08 → ch11  输入母线电流
     intf_adc_init(INTF_ADC_CH(0, 2),  &cfg);  // PB10 → ch2   电感电流
-    intf_adc_init(INTF_ADC_CH(0, 3),  &cfg);  // PB11 → ch3   输出电压
+    intf_adc_init(INTF_ADC_CH(0, 3),  &cfg);  // PB11 → ch3   V_LINK
     intf_adc_init(INTF_ADC_CH(0, 4),  &cfg);  // PB12 → ch4   线圈电流
     intf_adc_init(INTF_ADC_CH(0, 5),  &cfg);  // PB13 → ch5   LCC谐振电流
     intf_adc_init(INTF_ADC_CH(0, 6),  &cfg);  // PB14 → ch6   输入电压
@@ -717,7 +739,7 @@ static void voltage_isr(intf_adc_ch_t trig_ch, const uint16_t *values, uint8_t c
     (void)trig_ch; (void)user; (void)count;
     if (++v_cycle < 10) return;
     v_cycle = 0;
-    float V_out = (float)values[0] * 3300.0f / 65535.0f;  /* PB11 → ch3 */
+    float V_link = (float)values[0] * 3300.0f / 65535.0f;  /* PB11 → ch3, V_LINK */
     /* 电压环 PID → 更新电流环 setpoint */
 }
 
@@ -735,7 +757,7 @@ void app_adc_dual_pmt_init(void)
     };
     intf_adc_init(INTF_ADC_CH(0, 0), &cfg_i);
 
-    /* ADC1: 16-bit PMT — 输出电压 (PB11 → ch3) */
+    /* ADC1: 16-bit PMT — V_LINK (PB11 → ch3) */
     intf_adc_cfg_t cfg_v = {
         .resolution  = INTF_ADC_RES_DEFAULT,
         .mode        = INTF_ADC_MODE_PMT,
@@ -791,12 +813,12 @@ void app_adc_recalibrate(void)
 
 | 物理引脚 | ADC 通道 | 接口宏 | 典型用途 |
 |:---|:---|:---|:---|
-| PB08 | 11 | `INTF_ADC_CH(0,11)` / `INTF_ADC_CH(1,11)` | 输入母线电流 |
+| PB08 | 11 | `INTF_ADC_CH(0,11)` / `INTF_ADC_CH(1,11)` | Buck-Boost 输入母线电流 |
 | PB10 | 2 | `INTF_ADC_CH(0,2)` / `INTF_ADC_CH(1,2)` | 电感电流 (电流内环) |
-| PB11 | 3 | `INTF_ADC_CH(0,3)` / `INTF_ADC_CH(1,3)` | 输出电压 (电压外环) |
+| PB11 | 3 | `INTF_ADC_CH(0,3)` / `INTF_ADC_CH(1,3)` | V_LINK (Buck-Boost输出 / LCC全桥输入) |
 | PB12 | 4 | `INTF_ADC_CH(0,4)` / `INTF_ADC_CH(1,4)` | 线圈电流 |
 | PB13 | 5 | `INTF_ADC_CH(0,5)` / `INTF_ADC_CH(1,5)` | LCC 谐振电流 |
-| PB14 | 6 | `INTF_ADC_CH(0,6)` / `INTF_ADC_CH(1,6)` | 输入电压 |
+| PB14 | 6 | `INTF_ADC_CH(0,6)` / `INTF_ADC_CH(1,6)` | Buck-Boost 输入电压 |
 
 ### 8.10 Sequence 多通道扫描 + DMA
 

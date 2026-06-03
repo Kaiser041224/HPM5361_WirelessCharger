@@ -85,7 +85,7 @@
 │    └──────────┘                                                             │
 │                                                                             │
 │    PB14 → Buck-Boost输入电压                                                │
-│    PB11 → Buck-Boost输出电压                                                │
+│    PB11 → V_LINK (Buck-Boost输出 / LCC全桥输入)                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -107,7 +107,7 @@
 |------|---------|---------|--------|----------|--------|------|
 | **PB08** | ADC0 | CH11 | Buck-Boost输入电流 | 检流电阻 + INA240A2 | ±10A (示例) | 已依据 HPM5361 数据手册确认 |
 | **PB10** | ADC0 | CH2 | 电感电流 IL | 检流电阻 + INA240A2 | ±10A (示例) | 已确认 |
-| **PB11** | ADC0 | CH3 | Buck-Boost输出电压 | 电阻分压 | 0-30V (示例) | 已确认 |
+| **PB11** | ADC0 | CH3 | V_LINK (Buck-Boost输出 / LCC全桥输入) | 电阻分压 | 0-30V (示例) | 已确认 |
 | **PB12** | ADC0 | CH4 | 线圈电流 | 采样电路 | 待确认 | 已确认 |
 | **PB13** | ADC0 | CH5 | LCC谐振电流 | 电流互感器 + 运放 | 待确认 | 已确认 |
 | **PB14** | ADC0 | CH6 | Buck-Boost输入电压 | 电阻分压 | 0-30V (示例) | 已确认 |
@@ -129,7 +129,7 @@
 /* ADC通道定义（依据 HPM5361 数据手册）*/
 #define ADC_CH_BUCK_BOOST_I_IN    (11U)   /* PB08: Buck-Boost输入母线电流  → ADC ch11 */
 #define ADC_CH_INDUCTOR_I         (2U)    /* PB10: Buck-Boost电感电流     → ADC ch2  */
-#define ADC_CH_BUCK_BOOST_V_OUT   (3U)    /* PB11: Buck-Boost输出电压     → ADC ch3  */
+#define ADC_CH_V_LINK              (3U)    /* PB11: V_LINK (Buck-Boost输出 / LCC全桥输入) → ADC ch3 */
 #define ADC_CH_COIL_I             (4U)    /* PB12: 发射线圈电流           → ADC ch4  */
 #define ADC_CH_LCC_RESONANT_I     (5U)    /* PB13: LCC谐振电流            → ADC ch5  */
 #define ADC_CH_BUCK_BOOST_V_IN    (6U)    /* PB14: Buck-Boost输入电压     → ADC ch6  */
@@ -185,11 +185,11 @@
 
 | 触发源 | ADC通道 | 物理量 | 控制环路 |
 |--------|---------|--------|----------|
-| **PWM0触发 (Buck-Boost)** | CH8 | Buck-Boost输入电流 | 输入电流保护 |
-| | CH10 | 电感电流 | **电流环主反馈** |
-| | CH11 | Buck-Boost输出电压 | **电压环主反馈** |
-| | CH14 | Buck-Boost输入电压 | 前馈/保护 |
-| **PWM1触发 (LCC)** | CH12 | 线圈电流 | 副边电流控制 |
+| **PWM0触发 (Buck-Boost)** | CH11 | Buck-Boost 输入母线电流 | 输入电流保护 |
+| | CH2 | 电感电流 | **电流环主反馈** |
+| | CH3 | V_LINK (Buck-Boost输出 / LCC全桥输入) | **电压环主反馈** |
+| | CH6 | Buck-Boost 输入电压 | 前馈/保护 |
+| **PWM1触发 (LCC)** | CH4 | 线圈电流 | 副边电流控制 |
 | | CH13 | LCC谐振电流 | **谐振电流监测** |
 
 ---

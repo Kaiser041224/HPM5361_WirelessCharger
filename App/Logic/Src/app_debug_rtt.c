@@ -8,6 +8,7 @@
 #include "app_debug_rtt.h"
 
 #include "SEGGER_RTT.h"
+#include "app_adc.h"
 #include "app_hrpwm.h"
 #include "board.h"
 #include "hpm_pwm_drv.h"
@@ -389,4 +390,56 @@ void app_debug_hrpwm_run_tests(void) {
     pwm_set_phase(0, 0, 1, 0.0f);
 
     app_debug_write("\r\n[RTT] === HRPWM Validation Tests Completed ===\r\n");
+}
+
+/* ============================================================================
+ * ADC 测试
+ * ============================================================================ */
+
+static const char *adc_ch_names[ADC_CH_COUNT] = {
+    [ADC_CH_I_IN]   = "I_IN  ",
+    [ADC_CH_I_L]    = "I_L   ",
+    [ADC_CH_V_LINK] = "V_LINK",
+    [ADC_CH_I_COIL] = "I_COIL",
+    [ADC_CH_I_RES]  = "I_RES ",
+    [ADC_CH_V_IN]   = "V_IN  ",
+};
+
+#define ADC_VREF_MV   (3300.0f)
+#define ADC_MAX_RAW   (65535.0f)
+
+void app_debug_adc_dump_channels(void)
+{
+    app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
+
+    for (adc_channel_t ch = ADC_CH_I_IN; ch < ADC_CH_COUNT; ch++) {
+        uint16_t raw = app_adc_read_raw(ch);
+        float mv = (float)raw * ADC_VREF_MV / ADC_MAX_RAW;
+
+        app_debug_printf("[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n",
+                         adc_ch_names[ch], (ch <= ADC_CH_I_L) ? 0 : 1,
+                         raw, raw, mv);
+    }
+}
+
+void app_debug_adc_run_tests(void)
+{
+    app_debug_write("\r\n[RTT] === ADC Oneshot Channel Scan ===\r\n");
+
+    uint16_t val[ADC_CH_COUNT];
+
+    /* oneshot bus mode: x3 reads per channel to flush crosstalk */
+    for (adc_channel_t ch = ADC_CH_I_IN; ch < ADC_CH_COUNT; ch++) {
+        app_adc_read_raw(ch);
+        app_adc_read_raw(ch);
+        val[ch] = app_adc_read_raw(ch);
+    }
+
+    app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
+    for (adc_channel_t ch = ADC_CH_I_IN; ch < ADC_CH_COUNT; ch++) {
+        float mv = (float)val[ch] * 3300.0f / 65535.0f;
+        app_debug_printf("[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n",
+                         adc_ch_names[ch], (ch <= ADC_CH_I_L) ? 0 : 1,
+                         val[ch], val[ch], mv);
+    }
 }
