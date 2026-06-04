@@ -24,6 +24,7 @@
 #define ADC_CONV_CYCLES           (25U)
 #define ADC_MAX_CHANNELS          (16U)
 #define ADC_PMT_MAX_TRIG          (11U)
+#define ADC_PMT_DMA_SLOT_LEN      (4U)
 #define ADC_SEQ_MAX_LEN           16U
 
 /* ============================================================================
@@ -106,6 +107,18 @@ static uint32_t adc_get_irq(uint8_t inst)
     }
 }
 
+static int adc_init_clock(uint8_t inst)
+{
+    if (inst >= INTF_ADC_INSTANCE_COUNT) return -1;
+
+    clock_name_t clock = adc_get_clock(inst);
+
+    clock_add_to_group(clock, 0);
+    if (clock_set_adc_source(clock, clk_adc_src_ahb0) != status_success) return -1;
+
+    return (clock_get_frequency(clock) > 0) ? 0 : -1;
+}
+
 static adc16_resolution_t adc_map_resolution(intf_adc_resolution_t res)
 {
     switch (res) {
@@ -176,6 +189,16 @@ static void adc_enable_instance_irq(uint8_t inst)
     if (irq != 0) {
         intc_m_enable_irq_with_priority(irq, 1);
     }
+    if (inst == 1) {
+        intc_m_enable_irq_with_priority(IRQn_ADC0, 1);
+    }
+}
+
+static bool adc_has_pending_status(uint8_t inst)
+{
+    adc_inst_t *ai = &adc_instances[inst];
+
+    return ai->initialized && ai->base != NULL && adc16_get_status_flags(ai->base) != 0;
 }
 
 /* ============================================================================
@@ -198,7 +221,8 @@ static void adc_generic_isr(uint8_t inst)
             uint8_t  valid = 0;
 
             if (ai->dma.active) {
-                adc16_pmt_dma_data_t *dma = (adc16_pmt_dma_data_t *)ai->dma.buff;
+                uint32_t dma_offset = (uint32_t)ai->pmt.trig_ch * ADC_PMT_DMA_SLOT_LEN;
+                adc16_pmt_dma_data_t *dma = (adc16_pmt_dma_data_t *)&ai->dma.buff[dma_offset];
                 for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
                     values[valid] = dma[i].result;
                     valid++;
@@ -255,6 +279,10 @@ SDK_DECLARE_EXT_ISR_M(IRQn_ADC0, isr_adc0)
 void isr_adc0(void)
 {
     adc_generic_isr(0);
+    /* HPM5361 ADC0/ADC1 PMT trigger complete is wired to ADC0 IRQ in SDK motor samples. */
+    if (adc_has_pending_status(1)) {
+        adc_generic_isr(1);
+    }
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC1, isr_adc1)
@@ -295,6 +323,7 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
     if (!ai->initialized) {
         ADC16_Type *base = adc_get_base(inst);
         if (base == NULL) return -1;
+        if (adc_init_clock(inst) != 0) return -1;
 
         adc16_config_t adc_cfg;
         adc16_get_default_config(&adc_cfg);
@@ -369,6 +398,9 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
         adc16_enable_interrupts(ai->base, adc16_event_trig_complete);
 
         if (cfg->dma_en && cfg->dma_buff != NULL) {
+            uint32_t dma_offset = (uint32_t)cfg->pmt_trig_ch * ADC_PMT_DMA_SLOT_LEN;
+            if (cfg->dma_buff_len < dma_offset + cfg->pmt_ch_count) return -1;
+
             ai->dma.active = true;
             ai->dma.buff   = cfg->dma_buff;
             ai->dma.len    = cfg->dma_buff_len;

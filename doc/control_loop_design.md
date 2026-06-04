@@ -92,36 +92,45 @@
 │                           全桥LCC (PWM1)                                    │
 │                                                                             │
 │    ┌──────────┐     ┌──────────┐                                            │
-│    │ 电流互感器│ →   │   运放   │ → PB13 (LCC谐振电流)                        │
+│    │ 电流互感器│ →   │ Rburden  │ → PB13 (LCC谐振电流)                        │
 │    └──────────┘     └──────────┘                                            │
 │                                                                             │
-│    ┌──────────┐                                                             │
-│    │ 线圈采样  │ → PB12 (线圈电流)                                          │
-│    └──────────┘                                                             │
+│    ┌──────────┐     ┌──────────┐                                            │
+│    │ 电流互感器│ →   │ Rburden  │ → PB12 (线圈电流)                            │
+│    └──────────┘     └──────────┘                                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 #### 2.2.2 ADC通道映射表
 
-| 引脚 | ADC实例 | ADC通道 | 物理量 | 采样电路 | 满量程 | 说明 |
-|------|---------|---------|--------|----------|--------|------|
-| **PB08** | ADC0 | CH11 | Buck-Boost输入电流 | 检流电阻 + INA240A2 | ±10A (示例) | 已依据 HPM5361 数据手册确认 |
-| **PB10** | ADC0 | CH2 | 电感电流 IL | 检流电阻 + INA240A2 | ±10A (示例) | 已确认 |
-| **PB11** | ADC0 | CH3 | V_LINK (Buck-Boost输出 / LCC全桥输入) | 电阻分压 | 0-30V (示例) | 已确认 |
-| **PB12** | ADC0 | CH4 | 线圈电流 | 采样电路 | 待确认 | 已确认 |
-| **PB13** | ADC0 | CH5 | LCC谐振电流 | 电流互感器 + 运放 | 待确认 | 已确认 |
-| **PB14** | ADC0 | CH6 | Buck-Boost输入电压 | 电阻分压 | 0-30V (示例) | 已确认 |
+| 引脚 | 当前代码实例 | ADC通道 | 物理量 | 采样电路 | 前端系数 | 说明 |
+|------|--------------|---------|--------|----------|----------|------|
+| **PB14** | ADC0 | CH6 | Buck-Boost输入电压 `V_IN` | 100k + 3.3k, 1% 电阻分压 | `Vadc = Vin × 3.3k / 103.3k` | 对应 `ADC_CH_V_IN` |
+| **PB08** | ADC0 | CH11 | Buck-Boost输入母线电流 `I_IN` | 2mΩ 采样电阻 + INA240A2 | `Vadc = I × 0.002Ω × 50 = I × 0.1V/A` | 对应 `ADC_CH_I_IN` |
+| **PB10** | ADC0 | CH2 | 电感电流 `I_L` | 2mΩ 采样电阻 + INA240A2 | `Vadc = I × 0.1V/A` | 对应 `ADC_CH_I_L` |
+| **PB11** | ADC0 | CH3 | `V_LINK` (Buck-Boost输出 / LCC全桥输入) | 100k + 3.3k, 1% 电阻分压 | `Vadc = Vlink × 3.3k / 103.3k` | 对应 `ADC_CH_V_LINK` |
+| **PB12** | ADC1 | CH4 | 线圈电流 `I_COIL` | CST2-100L 互感器 + `Rburden=5.1Ω` | `Vadc = Ipri / 100 × 5.1Ω = Ipri × 0.051V/A` | 对应 `ADC_CH_I_COIL` |
+| **PB13** | ADC1 | CH5 | LCC谐振电流 `I_LF` | CST2-100L 互感器 + `Rburden=5.1Ω` | `Vadc = Ipri / 100 × 5.1Ω = Ipri × 0.051V/A` | 对应 `ADC_CH_I_LF` |
 
 #### 2.2.3 采样电路参数
 
-| 采样电路 | 参数 | 典型值 | 说明 |
-|----------|------|--------|------|
-| **检流电阻** | 阻值 | 5-10mΩ | 低阻值减少功耗 |
-| **INA240A2** | 增益 | 50V/V | 增益带宽积足够 |
-| **INA240A2** | 带宽 | 400kHz | 满足200kHz采样 |
-| **电流互感器** | 变比 | 1:50 或 1:100 | 根据电流范围选择 |
-| **运放** | 带宽 | >1MHz | 信号调理 |
-| **分压电阻** | 比例 | 1:10 或 1:20 | 匹配ADC量程 |
+| 采样电路 | 参数 | 当前值 | 换算关系 |
+|----------|------|--------|----------|
+| **电流采样** | 采样电阻 | `Rsense = 2mΩ` | 采样电阻压降 `Vsense = I × 0.002Ω` |
+| **电流采样** | 放大器 | `INA240A2`, `Gain = 50V/V` | ADC 输入 `Vadc = I × 0.002Ω × 50 = I × 0.1V/A` |
+| **电压采样** | 分压电阻 | `Rtop = 100kΩ`, `Rbot = 3.3kΩ`, `1%` | `Vadc = Vin × 3.3 / 103.3`，反算 `Vin = Vadc × 31.303` |
+| **互感器采样** | 电流互感器 | `CST2-100L` | 按 100:1 变比计算，`Isec = Ipri / 100` |
+| **互感器采样** | 负载电阻 | `Rburden = 5.1Ω` | `Vadc = Ipri / 100 × 5.1 = Ipri × 0.051V/A` |
+
+> 说明：ADC Driver 当前只输出 raw 或 ADC 引脚电压；以上物理量换算属于 App/控制算法层职责，不写入 Driver 层，保持 `AGENTS.md` 要求的硬件抽象边界。
+
+16-bit ADC、`Vref=3.3V` 时的理想满量程参考：
+
+| 物理量 | 反算公式 | 3.3V ADC 满量程 |
+|--------|----------|-----------------|
+| 分流电阻 + INA240A2 电流 | `I = Vadc / 0.1` | `33.0A` |
+| 100k + 3.3k 分压电压 | `Vin = Vadc × 31.303` | `≈103.3V` |
+| CST2-100L + 5.1Ω 互感器电流 (`I_COIL` / `I_LF`) | `Ipri = Vadc / 0.051` | `≈64.7A` |
 
 #### 2.2.4 ADC配置
 
@@ -146,8 +155,8 @@
 | 信号源 | 目标 | 用途 | 说明 |
 |--------|------|------|------|
 | **PWM0_SYNCI** | ADC0_STRGI | PWM0中心点触发ADC序列采样 | Buck-Boost控制 |
-| **PWM0_SYNCI** | ADCX_PTRGI0A | PWM0中心点触发ADC抢占采样 | 电流环快速响应 |
-| **PWM1_SYNCI** | ADCX_PTRGI1A | PWM1中心点触发ADC抢占采样 | LCC控制 |
+| **PWM0_CH8REF** | ADCX_PTRGI0A | PWM0中心点触发 ADC0 PMT 抢占采样 | Buck-Boost 电流/电压采样 |
+| **PWM1_CH8REF** | ADCX_PTRGI1A | PWM1中心点触发 ADC1 PMT 抢占采样 | LCC 电流采样 |
 
 #### 2.3.2 双PWM触发策略
 
@@ -190,7 +199,54 @@
 | | CH3 | V_LINK (Buck-Boost输出 / LCC全桥输入) | **电压环主反馈** |
 | | CH6 | Buck-Boost 输入电压 | 前馈/保护 |
 | **PWM1触发 (LCC)** | CH4 | 线圈电流 | 副边电流控制 |
-| | CH13 | LCC谐振电流 | **谐振电流监测** |
+| | CH5 | LCC谐振电流 | **谐振电流监测** |
+
+#### 2.3.4 当前 PMT ADC DMA 状态
+
+当前工程采用 **PWM→TRGM→ADC PMT→ADC 内部 DMA→ISR 回调** 的硬件链路，已完成 ADC0/ADC1 双实例实测：
+
+| ADC实例 | PWM触发源 | TRGM目标 | `pmt_trig_ch` | DMA buffer | DMA slot | 采样通道 |
+|---------|-----------|----------|---------------|------------|----------|----------|
+| ADC0 | `PWM0_CH8REF` | `ADCX_PTRGI0A` | 0 | `pmt_dma0[48]` | `pmt_dma0[0..3]` | ch6, ch11, ch2, ch3 |
+| ADC1 | `PWM1_CH8REF` | `ADCX_PTRGI1A` | 3 | `pmt_dma1[48]` | `pmt_dma1[12..13]` | ch4, ch5 |
+
+PMT DMA buffer 的关键规则：
+
+```text
+slot_base = pmt_trig_ch * 4
+value[i]  = ((adc16_pmt_dma_data_t *)&dma_buff[slot_base])[i].result
+```
+
+因此 ADC1 使用 `TRG1A` / `pmt_trig_ch=3` 时，结果不在 `dma_buff[0]`，而在 `dma_buff[12]` 开始的位置。历史 ADC1 不更新问题的主要原因就是 Driver 固定从 `dma_buff[0]` 读取，导致读错 PMT DMA slot。
+
+当前调用链：
+
+```text
+app_debug_adc_pmt_run_tests()
+  ├─ pwm_init()
+  ├─ intf_hrpwm_config_trigger_cmp(0, 8, 0.5f)
+  ├─ intf_hrpwm_config_trigger_cmp(1, 8, 0.5f)
+  ├─ intf_trgm_connect(PWM0_CH8REF, ADCX_PTRGI0A)
+  ├─ intf_trgm_connect(PWM1_CH8REF, ADCX_PTRGI1A)
+  ├─ intf_adc_init(INTF_ADC_CH(0, 0), cfg0)
+  └─ intf_adc_init(INTF_ADC_CH(1, 0), cfg1)
+
+硬件运行时：
+  PWMx CH8REF
+    → TRGM ADCX_PTRGIxA
+    → ADCx PMT queue
+    → ADC internal PMT DMA 写入对应 slot
+    → IRQn_ADC0/IRQn_ADC1
+    → drv_adc.c: adc_generic_isr(inst)
+    → pmt_cb(values)
+```
+
+设计约束：
+
+- ADC0 和 ADC1 必须使用独立 DMA buffer，避免调试和控制逻辑共享同一结果区。
+- 非 0 `pmt_trig_ch` 必须按 `pmt_trig_ch * 4` 读取 DMA slot。
+- ADC1 推荐使用 `ADCX_PTRGI1A`，不要与 ADC0 混用 `PTRGI0x` 组。
+- Driver 层负责 ADC 时钟、PMT DMA slot 和 ISR 状态处理；App 层只通过 `Interface/` 配置 HRPWM/TRGM/ADC，不直接操作 ADC SDK 寄存器。
 
 ---
 

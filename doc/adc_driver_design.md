@@ -3,8 +3,8 @@
 本文描述当前工程中 ADC16 驱动的设计边界、接口契约、硬件映射和开发指南。
 
 > **当前实现状态**：驱动已完成，通过硬件实测验证。
-> - ADC0 PMT + PWM + TRGM 联动：✅ 正常工作（200kHz 触发, 4 通道 DMA）
-> - ADC1 PMT：⚠️ ISR/回调整常触发，但 DMA 缓冲区数据不刷新（已知问题）
+> - ADC0 PMT + PWM + TRGM 联动：✅ 正常工作（200kHz 触发，4 通道 DMA）
+> - ADC1 PMT + PWM + TRGM 联动：✅ 正常工作（独立 `TRG1A`，2 通道 DMA）
 > - Oneshot / Period / Seq+DMA / Watchdog / 自动校准 / VREF 动态配置均已可用
 
 ---
@@ -65,9 +65,9 @@ void hpm_adc_driver_register(void);
 | 每触发转换通道数 (PMT) | 1–4 | 一次触发 → 顺序采样最多 4 个通道 |
 | Seq 队列长度 | 1–16 | Sequence 模式：一次启动扫描最多 16 个通道 |
 | Seq DMA 缓冲区 | `ADC_SOC_SEQ_MAX_DMA_BUFF_LEN` | ~16 MB 上限 |
-| PMT DMA 缓冲区 | `ADC_SOC_PMT_MAX_DMA_BUFF_LEN` | 48 个 uint32_t |
+| PMT DMA 缓冲区 | `ADC_SOC_PMT_MAX_DMA_BUFF_LEN` | 48 个 `uint32_t`，按 `pmt_trig_ch * 4` 分 slot |
 | 完成事件 | `TRIG_CMPT` / `SEQ_CVC` / `SEQ_CMPT` | 触发组 / 单次 / 队列全部完成 |
-| 中断向量 | `IRQn_ADC0` (58) / `IRQn_ADC1` (59) | ADC0/ADC1 各有独立 ISR |
+| 中断向量 | `IRQn_ADC0` (58) / `IRQn_ADC1` (59) | 向量独立；ADC1 PMT 完成在 HPM5361 上需兼容 `IRQn_ADC0` 共享触发路径 |
 
 ### 2.4 分辨率选项
 
@@ -96,12 +96,13 @@ void hpm_adc_driver_register(void);
 | 事项 | 说明 |
 |:---|:---|
 | **ADC 时钟使能** | `adc16_init()` 和校准完成后会关闭 `ANA_CTRL0.ADC_CLK_ON`，驱动在 init/calibrate 末尾显式重新打开，否则转换不工作 |
-| **默认 nonblocking** | SDK `adc16_get_default_config()` 默认 `wait_dis=true`，驱动显式设为 `false`（blocking），保证 oneshot 读稳定 |
+| **默认 nonblocking** | SDK `adc16_get_default_config()` 默认 `wait_dis=true`。当前驱动保持 nonblocking，避免 PMT ISR 读取结果时阻塞总线；Oneshot 通过重试读取稳定结果 |
 | **Oneshot 单通道** | Bus 模式下 BUS_RESULT 共享同一转换输出，切换通道后前 2 次读数无效，第 3 次起稳定。多通道请用 Sequence 或 PMT |
 | **校准自动触发** | `adc16_init()` 内部自动调用 `adc16_do_calibration()`，首次 init 即校准。重校准调用 `intf_adc_calibrate()` |
 | **双实例独立** | ADC0 和 ADC1 完全独立：各自分辨率/模式/时钟分频。同一物理引脚可同时被两个实例采样 |
 | **引脚≠通道号** | HPM5361 引脚后缀不等于 ADC 通道号（如 PB08→ch11），需查数据手册 |
-| **ADC1 PMT DMA** | ⚠️ 已知问题：ADC1 PMT 回调正常触发但 DMA 缓冲区数据不刷新，需后续排查 |
+| **PMT DMA slot** | PMT DMA 写入地址以 `pmt_trig_ch * 4` 为起始 slot，每个触发通道固定占 4 个 `adc16_pmt_dma_data_t`，不能总从 `dma_buff[0]` 读取 |
+| **ADC1 PMT IRQ** | HPM5361/HPM5300 SDK motor sample 显示 ADC0/ADC1 PMT 触发完成存在 `IRQn_ADC0` 共享路径；驱动在 `isr_adc0()` 中仅当 ADC1 有 pending status 时兜底处理 ADC1 |
 
 ---
 
@@ -424,31 +425,56 @@ intf_adc_calibrate(INTF_ADC_CH(0, 0));  // 重校准 ADC0+ADC1 全部已初始�
    - `adc_ch[i] = cfg->pmt_ch_list[i]`
    - `inten[i]`：仅最后一通道使能（`i == pmt_ch_count - 1`），触发组完成时产生一次 `TRIG_CMPT` 中断。
 5. 调用 `adc16_set_pmt_config()` 和 `adc16_enable_pmt_queue()`。
-6. 使能 `adc16_event_trig_complete` 中断并注册 ISR（`intc_m_enable_irq_with_priority`）。
+6. 若 `dma_en=true`，调用 `adc16_init_pmt_dma()` 将 ADC 内部 PMT DMA 写地址指向用户提供的非缓存缓冲区。
+7. 校验 PMT DMA buffer 长度必须覆盖 `pmt_trig_ch * 4 + pmt_ch_count`，避免读取非 0 触发通道时越界。
+8. 使能 `adc16_event_trig_complete` 中断并注册 ISR（`intc_m_enable_irq_with_priority`）。
 
-**ADC0/ADC1 各有独立 ISR**：
+**ADC0/ADC1 ISR 当前处理方式**：
 
 ```c
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC0, isr_adc0)
 void isr_adc0(void)
 {
-    adc_pmt_isr(0);  // 读 TRIG_CMPT，采集各通道 BUS_RESULT，调 pmt_cb
+    adc_generic_isr(0);
+    if (adc_has_pending_status(1)) {
+        adc_generic_isr(1);  // ADC1 PMT 在 HPM5361 上存在 ADC0 IRQ 共享路径
+    }
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC1, isr_adc1)
 void isr_adc1(void)
 {
-    adc_pmt_isr(1);
+    adc_generic_isr(1);
 }
 ```
 
-`adc_pmt_isr()` 内部逻辑：
+`adc_generic_isr()` 的 PMT 分支逻辑：
 1. 读 `adc16_get_status_flags()` 检查 `TRIG_CMPT`。
 2. 清除中断标志。
-3. 遍历 `pmt_ch_list`，逐通道调用 `adc16_get_oneshot_result()` 读取 `BUS_RESULT`。
-4. 若回调非空，调用 `pmt_cb(trig_ch, values[], count, user_data)` 将全部通道值一次性传给 App 层。
+3. 若 `dma.active=true`，按 `dma_offset = pmt_trig_ch * 4` 定位 PMT DMA slot，并从该 slot 起读取 `pmt_ch_count` 个结果。
+4. 若未启用 DMA，则遍历 `pmt_ch_list` 读取 `BUS_RESULT` 作为 fallback。
+5. 若回调非空，调用 `pmt_cb(trig_ch, values[], count, user_data)` 将全部通道值一次性传给 App 层。
 
-> **注意**：TRGM 路由（PWM 比较器 → ADC 触发输入）由 App 层通过 `trgm_output_config()` 等 API 配置，不属于 ADC 驱动的职责范围。
+> **注意**：TRGM 路由（PWM 比较器 → ADC 触发输入）由 App 层通过 `intf_trgm_connect()` 配置，不属于 ADC 驱动的职责范围。Driver 只消费已经进入 ADC 的 PMT 触发事件和 DMA 结果。
+
+### 5.9 ADC1 PMT DMA 问题复盘（已修复）
+
+历史现象：ADC0 的 4 个 PMT 通道正常刷新，ADC1 的 2 个 PMT 通道回调能触发，但读数长期不更新或看起来像旧数据。
+
+根因由三个因素叠加造成：
+
+1. **PMT DMA slot 读取错误**  
+   HPM ADC16 PMT DMA buffer 不是简单从 `dma_buff[0]` 连续写所有触发通道。SDK motor sample 使用 `adc_buff[TRIG_CH * 4]` 读取结果，说明每个 `pmt_trig_ch` 固定占 4 个 `adc16_pmt_dma_data_t`。旧驱动无论 `pmt_trig_ch` 是多少都从 `dma_buff[0]` 读取，因此 ADC1 使用 `TRG0B` / `TRG1A` 等非 0 触发通道时会读错 slot。
+
+2. **ADC1 触发路由与 ADC0 过于接近**  
+   调试代码曾将 ADC1 接到 `ADCX_PTRGI0B`（`pmt_trig_ch=1`），容易误判为与 ADC0 共用同一组 PMT/DMA 资源。当前调试与推荐设计改为：
+   - ADC0：`PWM0_CH8REF → ADCX_PTRGI0A`，`pmt_trig_ch=0`
+   - ADC1：`PWM1_CH8REF → ADCX_PTRGI1A`，`pmt_trig_ch=3`
+
+3. **ADC1 时钟与中断路径需要显式兜底**  
+   Driver 现在在每个 ADC 实例首次初始化时显式配置 `clock_adc0/clock_adc1` 的 ADC source；同时参考 HPM SDK motor sample，在 `IRQn_ADC0` 中仅当 ADC1 有 pending status 时处理 ADC1，避免 ADC1 PMT 完成但回调链未执行。
+
+当前状态：ADC1 PMT DMA 已通过硬件验证能正确更新，推荐继续保持 ADC0/ADC1 使用不同 `PTRGI` 组和独立 DMA buffer。
 
 ---
 
@@ -491,10 +517,12 @@ App 初始化
   -> intf_adc_calibrate(ch)                         // 运行时重校准 (所有实例)
 
   // PMT:
-  -> intf_adc_init(INTF_ADC_CH(0, 0), &pmt_cfg)     // 配置 ADC0 PMT 触发组
-                                                     //   (内部自动使能 ISR)
-  [PWM CMP → TRGM 硬件触发]
-  -> isr_adc0() → adc_pmt_isr() → pmt_cb(values)    // 中断回调中执行控制算法
+  -> intf_hrpwm_config_trigger_cmp(0/1, 8, 0.5f)    // PWM 中点产生 CH8REF
+  -> intf_trgm_connect(PWMx_CH8REF, ADCX_PTRGIxA)   // 路由到 ADC PMT 触发输入
+  -> intf_adc_init(INTF_ADC_CH(inst, 0), &pmt_cfg)  // 配置 ADCx PMT + DMA
+  [PWM CMP → TRGM → ADC PMT → ADC internal DMA]
+  -> isr_adc0()/isr_adc1() → adc_generic_isr()
+  -> dma_buff[pmt_trig_ch * 4 + i] → pmt_cb(values)
 ```
 
 ---
@@ -511,15 +539,15 @@ App 初始化
 - `sample_cycle` / `clock_div` 为 0 时使用安全默认值（20 cycles / 4 分频）。
 - DMA 仅在 PMT / Seq 模式下有效，Oneshot / Period 模式开启 DMA 返回 `-1`。
 - PMT 参数校验：`pmt_trig_ch < 11`，`pmt_ch_count` 1–4。
+- PMT DMA buffer 长度校验：`dma_buff_len >= pmt_trig_ch * 4 + pmt_ch_count`。
 - ISR 中断优先级默认 1，可调整。
 - WDOG 回调后自动关闭该通道中断，防止 flooding，需手动 `intf_adc_wdog_reenable()` 重新使能。
 - ADC 时钟显式使能：`adc16_init()` 会关闭时钟，驱动在 init/calibrate 后重新打开 `ANA_CTRL0.ADC_CLK_ON`。
-- Blocking 模式：显式 `wait_dis = false`，覆盖 SDK 默认 nonblocking，避免 oneshot 读数不稳定。
+- PMT ISR 使用 nonblocking 访问，避免高频 PWM 触发下 ISR 内总线等待导致死锁；Oneshot 读取失败时执行有限重试。
 
 **当前仍未完成的 ADC 能力**：
 
 - 温度传感器通道（作为独立外设驱动单独实现）。
-- 温度传感器通道。
 
 ---
 
@@ -543,11 +571,12 @@ App 初始化
     → Interface: ops->read(ch, &val)
     → Driver:   adc16_get_oneshot_result() / adc16_get_prd_result()
 
-读取 (PMT - 中断自动触发)
+读取 (PMT - 中断自动触发，DMA 优先)
   [硬件 PWM → TRGM → ADC PMT 触发]
   → ISR: isr_adc0() / isr_adc1()
-    → adc_pmt_isr(inst)
-      → 遍历 pmt_ch_list → adc16_get_oneshot_result()
+    → adc_generic_isr(inst)
+      → dma_offset = pmt_trig_ch * 4
+      → 读取 dma_buff[dma_offset + i].result
       → pmt.cb(trig_ch, values, count, user_data)
 ```
 
@@ -645,8 +674,8 @@ intf_adc_read()  →  adc16_get_prd_result()      ← 读最近一次结果 (不
 适用于控制环：一次 PWM 触发同时采集电流+电压，结果通过回调送达。
 
 ```
-硬件链路:  PWM CMP → TRGM → ADC0 PMT TRG0 → 采样 ch11,ch2,ch4 → TRIG_CMPT 中断
-软件链路:  isr_adc0() → adc_pmt_isr(0) → pmt.cb(values, count)
+硬件链路:  PWM0 CH8REF → TRGM → ADCX_PTRGI0A → ADC0 PMT TRG0A → PMT DMA slot0
+软件链路:  isr_adc0() → adc_generic_isr(0) → pmt.cb(values, count)
 ```
 
 ```c
@@ -660,14 +689,20 @@ static void control_isr(intf_adc_ch_t trig_ch, const uint16_t *values, uint8_t c
     (void)trig_ch;
     (void)user;
 
-    if (count < 3) return;
+    if (count < 4) return;
 
-    /* values[0] = ch11 (PB08: 输入母线电流)
-     * values[1] = ch2  (PB10: 电感电流)
-     * values[2] = ch4  (PB12: 线圈电流) */
-    float I_in   = (float)values[0] * 3300.0f / 65535.0f;
-    float I_L    = (float)values[1] * 3300.0f / 65535.0f;
-    float I_coil = (float)values[2] * 3300.0f / 65535.0f;
+    /* values[0] = ch6  (PB14: Buck-Boost 输入电压)
+     * values[1] = ch11 (PB08: Buck-Boost 输入母线电流)
+     * values[2] = ch2  (PB10: 电感电流)
+     * values[3] = ch3  (PB11: V_LINK) */
+    float V_in   = (float)values[0] * 3300.0f / 65535.0f;
+    float I_in   = (float)values[1] * 3300.0f / 65535.0f;
+    float I_L    = (float)values[2] * 3300.0f / 65535.0f;
+    float V_link = (float)values[3] * 3300.0f / 65535.0f;
+
+    (void)V_in;
+    (void)I_in;
+    (void)V_link;
 
     /* 在此执行电流环 PID 计算，更新 PWM 占空比 */
 }
@@ -681,8 +716,8 @@ void app_adc_init_pmt_multich(void)
         .mode            = INTF_ADC_MODE_PMT,
         .vref_mv         = 3300.0f,
         .pmt_trig_ch     = 0,              /* TRG0A */
-        .pmt_ch_count    = 3,
-        .pmt_ch_list     = {11, 2, 4},     /* 一次触发采集 3 个通道 */
+        .pmt_ch_count    = 4,
+        .pmt_ch_list     = {6, 11, 2, 3},  /* 一次触发采集 4 个通道 */
         .pmt_cb          = control_isr,
         .pmt_cb_user_data = NULL,
     };
@@ -691,8 +726,8 @@ void app_adc_init_pmt_multich(void)
     intf_adc_init(INTF_ADC_CH(0, 0), &cfg);
 
     /* 需 App 层额外配置:
-     *   trgm_output_config(TRGM0, PWM_CMP_REF, TRGM_OUT_ADC0_PMT_TRG)
-     *   PWM 比较器在期望采样时刻产生触发 */
+     *   intf_hrpwm_config_trigger_cmp(0, 8, 0.5f)
+     *   intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A) */
 }
 ```
 
@@ -700,76 +735,81 @@ ISR 内部执行流程：
 
 ```
 isr_adc0()
-  └─ adc_pmt_isr(0)
+  └─ adc_generic_isr(0)
        ├─ status = adc16_get_status_flags(HPM_ADC0)
        ├─ if (!TRIG_CMPT) return
        ├─ adc16_clear_status_flags(HPM_ADC0, status)
-       ├─ for i in 0..2:
-       │    adc16_get_oneshot_result(HPM_ADC0, ch_list[i], &values[i])
+       ├─ if dma.active:
+       │    dma = &dma_buff[pmt_trig_ch * 4]
+       │    values[i] = dma[i].result
+       ├─ else:
+       │    values[i] = BUS_RESULT[ch_list[i]]
        └─ pmt.cb(INTF_ADC_CH(0,0), values, 3, user)
             └─ control_isr()   ← 用户代码: 读值、算 PID、改占空比
 ```
 
-### 8.5 双实例 PMT（内环电流 + 外环电压）
+### 8.5 双实例 PMT（Buck-Boost + LCC 独立触发）
 
-ADC0 做高速电流环（每 PWM 周期），ADC1 做低速电压环（降频）。
+当前硬件实测路径使用 ADC0/ADC1 独立 PMT 触发组和独立 DMA buffer：
 
 ```
-          PWM0 CMP_A                PWM0 CMP_B
-             │                          │
-        TRGM → ADC0 PMT            TRGM → ADC1 PMT
-             │                          │
-      采样 ch11 (16-bit)          采样 ch6 (16-bit)
-             │                          │
-       IRQn_ADC0 (每周期)          IRQn_ADC1 (每周期, 可软件降频)
-             │                          │
-      current_isr()               voltage_isr()
-      执行 PID → 更新 duty         执行 PID → 更新电流 setpoint
+PWM0 CH8REF ──TRGM──> ADCX_PTRGI0A ──> ADC0 PMT trig_ch=0
+                                      ├─ DMA slot: pmt_dma0[0..3]
+                                      └─ ch6/ch11/ch2/ch3
+
+PWM1 CH8REF ──TRGM──> ADCX_PTRGI1A ──> ADC1 PMT trig_ch=3
+                                      ├─ DMA slot: pmt_dma1[12..13]
+                                      └─ ch4/ch5
 ```
 
 ```c
-/* ADC0 ISR: 电流环 — 每 PWM 周期触发一次，直接更新占空比 */
-static void current_isr(intf_adc_ch_t trig_ch, const uint16_t *values, uint8_t count, void *user)
+ATTR_PLACE_AT_NONCACHEABLE_WITH_ALIGNMENT(4) static uint32_t pmt_dma0[48];
+ATTR_PLACE_AT_NONCACHEABLE_WITH_ALIGNMENT(4) static uint32_t pmt_dma1[48];
+
+static void buck_boost_cb(intf_adc_ch_t trig_ch, const uint16_t *values, uint8_t count, void *user)
 {
     (void)trig_ch; (void)user; (void)count;
-    float I_L = (float)values[0] * 3300.0f / 65535.0f;    /* PB10 → ch2 */
-    /* 电流环 PID → hrpwm_set_duty() */
+    /* values: V_IN(ch6), I_IN(ch11), I_L(ch2), V_LINK(ch3) */
 }
 
-/* ADC1 ISR: 电压环 — 每 10 个 PWM 周期触发一次 */
-static uint8_t v_cycle = 0;
-static void voltage_isr(intf_adc_ch_t trig_ch, const uint16_t *values, uint8_t count, void *user)
+static void lcc_cb(intf_adc_ch_t trig_ch, const uint16_t *values, uint8_t count, void *user)
 {
     (void)trig_ch; (void)user; (void)count;
-    if (++v_cycle < 10) return;
-    v_cycle = 0;
-    float V_link = (float)values[0] * 3300.0f / 65535.0f;  /* PB11 → ch3, V_LINK */
-    /* 电压环 PID → 更新电流环 setpoint */
+    /* values: I_COIL(ch4), I_LF(ch5) */
 }
 
 void app_adc_dual_pmt_init(void)
 {
     hpm_adc_driver_register();
 
-    /* ADC0: 16-bit PMT — 电感电流 (PB10 → ch2) */
-    intf_adc_cfg_t cfg_i = {
-        .resolution  = INTF_ADC_RES_DEFAULT,
-        .mode        = INTF_ADC_MODE_PMT,
-        .pmt_trig_ch = 0,
-        .pmt_ch_count = 1,  .pmt_ch_list = {2},
-        .pmt_cb      = current_isr,
-    };
-    intf_adc_init(INTF_ADC_CH(0, 0), &cfg_i);
+    intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
+    intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
 
-    /* ADC1: 16-bit PMT — V_LINK (PB11 → ch3) */
-    intf_adc_cfg_t cfg_v = {
+    intf_adc_cfg_t cfg0 = {
         .resolution  = INTF_ADC_RES_DEFAULT,
         .mode        = INTF_ADC_MODE_PMT,
+        .dma_en      = true,
+        .dma_buff    = pmt_dma0,
+        .dma_buff_len = 48,
         .pmt_trig_ch = 0,
-        .pmt_ch_count = 1,  .pmt_ch_list = {3},
-        .pmt_cb      = voltage_isr,
+        .pmt_ch_count = 4,
+        .pmt_ch_list = {6, 11, 2, 3},
+        .pmt_cb      = buck_boost_cb,
     };
-    intf_adc_init(INTF_ADC_CH(1, 0), &cfg_v);
+    intf_adc_init(INTF_ADC_CH(0, 0), &cfg0);
+
+    intf_adc_cfg_t cfg1 = {
+        .resolution  = INTF_ADC_RES_DEFAULT,
+        .mode        = INTF_ADC_MODE_PMT,
+        .dma_en      = true,
+        .dma_buff    = pmt_dma1,
+        .dma_buff_len = 48,
+        .pmt_trig_ch = 3,
+        .pmt_ch_count = 2,
+        .pmt_ch_list = {4, 5},
+        .pmt_cb      = lcc_cb,
+    };
+    intf_adc_init(INTF_ADC_CH(1, 0), &cfg1);
 }
 ```
 
@@ -804,25 +844,31 @@ void app_adc_recalibrate(void)
 
 ### 8.8 满量程换算参考
 
-本项目统一使用 16-bit 分辨率，VREF 默认 3300mV。
+本项目统一使用 16-bit 分辨率，VREF 默认 3300mV。ADC Driver 只负责返回 raw 或 ADC 引脚电压，以下前端采样电路换算供 App/控制算法层使用。
 
-| 物理量 | 原始值范围 | 换算公式 | 满量程 |
-|:---|:---|:---|:---|
-| 电压 (mV) | 0–65535 | `mv = raw × vref_mv / 65535` | 3300 mV |
-| 电流 (INA240A2, Gain=50, Rs=5mΩ) | 0–65535 | `I = (raw × vref / 65535) / (50 × 0.005)` | 13.2 A |
-| 电流 (INA240A2, Gain=20, Rs=10mΩ) | 0–65535 | `I = (raw × vref / 65535) / (20 × 0.010)` | 16.5 A |
-| 电压 (电阻分压 1:10) | 0–65535 | `V = (raw × vref / 65535) × 10` | 33.0 V |
+```text
+Vadc = raw × vref_mv / 65535 / 1000    // 单位: V
+```
+
+| 前端类型 | 用途通道 | 参数 | 物理量换算公式 | 3.3V 理想满量程 |
+|:---|:---|:---|:---|:---|
+| ADC 引脚电压 | 全部通道 | `Vref=3.3V` | `Vadc = raw × 3.3 / 65535` | 3.3 V |
+| 电流采样 | `I_IN` / `I_L` | `Rsense=2mΩ`, `INA240A2 Gain=50` | `I = Vadc / (0.002 × 50) = Vadc / 0.1` | 33.0 A |
+| 电压采样 | `V_IN` / `V_LINK` | `Rtop=100kΩ`, `Rbot=3.3kΩ`, `1%` | `Vin = Vadc × (100k + 3.3k) / 3.3k = Vadc × 31.303` | ≈103.3 V |
+| 互感器采样 | `I_COIL` / `I_LF` | `CST2-100L`, `Rburden=5.1Ω` | `Ipri = Vadc / (5.1 / 100) = Vadc / 0.051` | ≈64.7 A |
+
+> 若 INA240A2 或互感器后级存在中点偏置，控制算法应先做零点扣除：`Vsignal = Vadc - Vbias`，再代入电流公式。
 
 ### 8.9 通道速查表
 
-| 物理引脚 | ADC 通道 | 接口宏 | 典型用途 |
-|:---|:---|:---|:---|
-| PB08 | 11 | `INTF_ADC_CH(0,11)` / `INTF_ADC_CH(1,11)` | Buck-Boost 输入母线电流 |
-| PB10 | 2 | `INTF_ADC_CH(0,2)` / `INTF_ADC_CH(1,2)` | 电感电流 (电流内环) |
-| PB11 | 3 | `INTF_ADC_CH(0,3)` / `INTF_ADC_CH(1,3)` | V_LINK (Buck-Boost输出 / LCC全桥输入) |
-| PB12 | 4 | `INTF_ADC_CH(0,4)` / `INTF_ADC_CH(1,4)` | 线圈电流 |
-| PB13 | 5 | `INTF_ADC_CH(0,5)` / `INTF_ADC_CH(1,5)` | LCC 谐振电流 |
-| PB14 | 6 | `INTF_ADC_CH(0,6)` / `INTF_ADC_CH(1,6)` | Buck-Boost 输入电压 |
+| 物理引脚 | 当前代码实例 | ADC 通道 | App 枚举 | 采样前端 | 典型用途 |
+|:---|:---|:---|:---|:---|:---|
+| PB14 | ADC0 | 6 | `ADC_CH_V_IN` | 100k + 3.3k 分压 | Buck-Boost 输入电压 |
+| PB08 | ADC0 | 11 | `ADC_CH_I_IN` | 2mΩ + INA240A2 | Buck-Boost 输入母线电流 |
+| PB10 | ADC0 | 2 | `ADC_CH_I_L` | 2mΩ + INA240A2 | 电感电流 (电流内环) |
+| PB11 | ADC0 | 3 | `ADC_CH_V_LINK` | 100k + 3.3k 分压 | V_LINK (Buck-Boost输出 / LCC全桥输入) |
+| PB12 | ADC1 | 4 | `ADC_CH_I_COIL` | CST2-100L + 5.1Ω burden | 线圈电流 |
+| PB13 | ADC1 | 5 | `ADC_CH_I_LF` | CST2-100L + 5.1Ω burden | LCC 谐振电流 |
 
 ### 8.10 Sequence 多通道扫描 + DMA
 

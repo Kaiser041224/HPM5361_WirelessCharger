@@ -404,9 +404,8 @@ void app_debug_hrpwm_run_tests(void) {
  * ============================================================================ */
 
 static const char* adc_ch_names[ADC_CH_COUNT] = {
-    [ADC_CH_V_IN] = "V_IN  ",   [ADC_CH_I_IN] = "I_IN  ",
-    [ADC_CH_I_L] = "I_L   ",    [ADC_CH_V_LINK] = "V_LINK",
-    [ADC_CH_I_COIL] = "I_COIL", [ADC_CH_I_LF] = "I_LF  ",
+    [ADC_CH_V_IN] = "V_IN  ",   [ADC_CH_I_IN] = "I_IN  ",   [ADC_CH_I_L] = "I_L   ",
+    [ADC_CH_V_LINK] = "V_LINK", [ADC_CH_I_COIL] = "I_COIL", [ADC_CH_I_LF] = "I_LF  ",
 };
 
 #define ADC_VREF_MV (3300.0f)
@@ -488,7 +487,7 @@ void app_debug_adc_pmt_run_tests(void) {
         intf_hrpwm_config_trigger_cmp(0, 8, 0.5f);
         intf_hrpwm_config_trigger_cmp(1, 8, 0.5f);
         intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
-        intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI0B);
+        intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
 
         hpm_adc_driver_register();
 
@@ -508,7 +507,7 @@ void app_debug_adc_pmt_run_tests(void) {
         };
         intf_adc_init(INTF_ADC_CH(0, 0), &cfg0);
 
-        /* ADC1 TRG0B: I_COIL(ch4)+I_LF(ch5) */
+        /* ADC1 TRG1A: I_COIL(ch4)+I_LF(ch5), independent PMT DMA slot */
         intf_adc_cfg_t cfg1 = {
             .resolution = INTF_ADC_RES_DEFAULT,
             .mode = INTF_ADC_MODE_PMT,
@@ -517,7 +516,7 @@ void app_debug_adc_pmt_run_tests(void) {
             .dma_en = true,
             .dma_buff = pmt_dma1,
             .dma_buff_len = 48,
-            .pmt_trig_ch = 1,
+            .pmt_trig_ch = 3,
             .pmt_ch_count = 2,
             .pmt_ch_list = {4, 5},
             .pmt_cb = pmt_cb_adc1,
