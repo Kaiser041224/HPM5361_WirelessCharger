@@ -414,7 +414,7 @@ float pid_position_calculate(pid_position_t *pid, float target, float measured)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    App/Logic/app_control.c                       │
+│                App/Control/Src/ctrl_power_stage.c                 │
 │  控制环路业务逻辑：PID参数、控制策略、故障处理                     │
 └─────────────────────────────────────────────────────────────────┘
                               │

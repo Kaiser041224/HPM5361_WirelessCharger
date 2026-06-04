@@ -59,20 +59,12 @@ HPM5361_WirelessCharger/
 │       ├── drv_i2c.c           # I2C 驱动
 │       └── drv_ws2812.c        # WS2812 驱动
 ├── App/                        # 应用层
-│   ├── main.c                  # 入口 (桥接初始化)
-│   └── Logic/
-│       ├── Inc/
-│       │   ├── app_gpio.h
-│       │   ├── app_buzzer.h
-│       │   ├── app_ws2812.h
-│       │   ├── app_hrpwm.h
-│       │   └── app_debug_rtt.h
-│       └── Src/
-│           ├── app_gpio.c      # GPIO 业务逻辑
-│           ├── app_buzzer.c    # 蜂鸣器业务逻辑
-│           ├── app_ws2812.c    # WS2812 业务逻辑
-│           ├── app_hrpwm.c     # HRPWM App 封装
-│           └── app_debug_rtt.c # RTT 调试与HRPWM测试
+│   ├── main.c                  # 入口 (当前保留为直接初始化)
+│   ├── Application/            # 应用编排 / 业务入口 / 运行时调度
+│   ├── Control/                # 控制策略 / 闭环控制 / 保护逻辑
+│   ├── Algorithm/              # 纯算法库（PID、滤波、观测器等）
+│   ├── Platform/               # 应用级平台封装（ADC/PWM/GPIO/同步采样）
+│   └── Debug/                  # 调试、测试、RTT 输出
 ├── doc/                        # 文档
 │   ├── hrpwm_driver_design.md  # HRPWM 驱动设计文档
 │   └── adc_driver_design.md    # ADC 驱动设计文档
@@ -81,6 +73,20 @@ HPM5361_WirelessCharger/
 ├── linkers/                    # 链接脚本
 └── output/                     # 编译输出
 ```
+
+## App 层分层说明
+
+- `Application/`：放应用入口、业务编排、运行时调度，不直接承载具体外设访问。
+- `Control/`：放控制状态机、闭环调节、功率级控制、保护策略。
+- `Algorithm/`：放纯算法库，尽量不依赖 `app_*` 或 `hpm_*` 头文件。
+- `Platform/`：放 `app_adc`、`app_hrpwm`、`app_sampling_sync`、`app_gpio` 等应用级平台能力封装。
+- `Debug/`：放 RTT 输出、调试测试入口、参数验证辅助代码。
+
+这样划分后：
+- 平台访问和业务逻辑分离；
+- 控制装配与纯算法分离；
+- 调试代码不会继续堆入主业务目录；
+- 后续新增算法库和控制器时不再依赖单一 `Logic/` 目录。
 
 ## 分层规则
 
@@ -132,8 +138,9 @@ make flash
 
 ### HRPWM 调试验证
 
-- `App/Logic/Src/app_debug_rtt.c` 提供 `app_debug_hrpwm_run_tests()` 综合测试入口。
-- `main.c` 默认调用该入口，覆盖以下场景：
+- `App/Debug/Src/app_debug_rtt.c` 提供 `app_debug_hrpwm_run_tests()` 综合测试入口。
+- 当前 `main.c` 默认调用的是 `app_debug_adc_pmt_run_tests()`；如需执行 HRPWM 综合验证，可切换到 `app_debug_hrpwm_run_tests()`。
+- `app_debug_hrpwm_run_tests()` 覆盖以下场景：
   - 静态初始移相：start 前验证 `0~180°`
   - 运行态连续移相：限制并验证 `0~89°`
   - 带移相的变频重放验证

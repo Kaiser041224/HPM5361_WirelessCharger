@@ -120,7 +120,7 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 | 注册分发 | `Interface/intf_default.c` | ✅ 完成 | `hrpwm_ops` 指针保存与分发 |
 | 板级引脚 | `Board/.../pinmux.c` | ✅ 完成 | PA24-PA27 → PWM0_P_0..3, PA28-PA31 → PWM1_P_4..7 |
 | 设计文档 | `doc/hrpwm_driver_design.md` | ✅ 完成 | 包含 SDK 示例参考和高级功能指南 |
-| 调试接口 | `App/Logic/Src/app_debug_rtt.c` | ✅ 完成 | 中断管理、变频/移相/占空比测试 |
+| 调试接口 | `App/Debug/Src/app_debug_rtt.c` | ✅ 完成 | 中断管理、变频/移相/占空比测试 |
 
 > **注意**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API，命名保留为 `hrpwm` 用于接口演进。
 
@@ -192,7 +192,7 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 
 ## 3. App 层业务逻辑
 
-### 3.1 GPIO 业务封装 (`App/Logic/Src/app_gpio.c`)
+### 3.1 GPIO 业务封装 (`App/Platform/Src/app_gpio.c`)
 
 - [x] `app_gpio_init()` - GPIO 驱动注册、引脚初始化
 - [x] `app_gpio_set()` - 设置输出电平
@@ -201,7 +201,7 @@ AGENTS.md §3.1 要求接口使用匿名结构体，参数归一化。当前接�
 - [x] 按键中断回调 - `button_isr()`、`button_press_count`
 - [ ] 按键中断触发问题排查 - 需要在调试器中验证
 
-### 3.2 Buzzer 业务封装 (`App/Logic/Src/app_buzzer.c`)
+### 3.2 Buzzer 业务封装 (`App/Platform/Src/app_buzzer.c`)
 
 - [x] `app_buzzer_init()` - GPWM 驱动注册、ch3 初始化、默认 4kHz、force_low
 - [x] `app_buzzer_set(bool enabled, uint32_t frequency_hz)` - 控制蜂鸣器开关和音调

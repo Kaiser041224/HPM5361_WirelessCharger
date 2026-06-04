@@ -17,7 +17,7 @@
 | `Interface/` | `intf_hrpwm.h` | 定义纯 C 契约，不暴露 `hpm_*` 类型 |
 | `Interface/` | `intf_default.c` | 接口注册/分发实现，保存 ops 指针 |
 | `Driver/hpm_impl/` | `drv_hrpwm.c` | 将接口调用映射到 HPM SDK PWM API |
-| `App/Logic/` | `app_hrpwm.c/.h` | HRPWM App 封装，提供 pwm_pair_t 面向对象 API，仅通过 Interface 访问 |
+| `App/Platform/` | `app_hrpwm.c/.h` | HRPWM App 封装，提供 pwm_pair_t 面向对象 API，仅通过 Interface 访问 |
 
 当前保留的注册入口：
 

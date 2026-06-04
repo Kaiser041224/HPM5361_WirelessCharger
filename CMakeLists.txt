@@ -33,7 +33,11 @@ sdk_app_src(${RTT_DIR}/RTT/SEGGER_RTT_printf.c)
 sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Interface)
 
 # App headers
-sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Logic/Inc)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Application/Inc)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Control/Inc)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Algorithm/Inc)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Platform/Inc)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Debug/Inc)
 
 # Driver headers
 sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/hpm_impl)
@@ -57,12 +61,13 @@ sdk_app_src(Driver/WS2812/WS2812.c)
 sdk_app_src(Interface/intf_default.c)
 
 # App logic
-sdk_app_src(App/Logic/Src/app_gpio.c)
-sdk_app_src(App/Logic/Src/app_buzzer.c)
-sdk_app_src(App/Logic/Src/app_ws2812.c)
-sdk_app_src(App/Logic/Src/app_hrpwm.c)
-sdk_app_src(App/Logic/Src/app_adc.c)
-sdk_app_src(App/Logic/Src/app_debug_rtt.c)
+sdk_app_src(App/Platform/Src/app_gpio.c)
+sdk_app_src(App/Platform/Src/app_buzzer.c)
+sdk_app_src(App/Platform/Src/app_ws2812.c)
+sdk_app_src(App/Platform/Src/app_hrpwm.c)
+sdk_app_src(App/Platform/Src/app_adc.c)
+sdk_app_src(App/Platform/Src/app_sampling_sync.c)
+sdk_app_src(App/Debug/Src/app_debug_rtt.c)
 
 # Main entry
 sdk_app_src(App/main.c)

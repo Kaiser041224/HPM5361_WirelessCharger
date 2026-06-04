@@ -12,10 +12,26 @@
 
 #include "intf_hrpwm.h"
 
+#include <stdbool.h>
+
 static const intf_hrpwm_ch_t pair_to_ch[PWM_PAIR_COUNT] = {0, 2, 4, 6};
-static const intf_hrpwm_inst_t pair_to_inst[PWM_PAIR_COUNT] = {0, 0, 1, 1};
 
 extern void hpm_hrpwm_driver_register(void);
+
+static bool pwm_pair_is_valid(pwm_pair_t pair)
+{
+    return pair < PWM_PAIR_COUNT;
+}
+
+static bool pwm_inst_is_valid(pwm_inst_t inst)
+{
+    return inst < PWM_INST_COUNT;
+}
+
+static intf_hrpwm_ch_t pwm_pair_channel(pwm_pair_t pair)
+{
+    return pair_to_ch[pair];
+}
 
 void pwm_init(void) {
     hpm_hrpwm_driver_register();
@@ -56,40 +72,40 @@ void pwm_init(void) {
     };
 
     for (pwm_pair_t pair = PWM_PAIR_0; pair < PWM_PAIR_COUNT; pair++) {
-        intf_hrpwm_init_pair(pair_to_ch[pair], &cfg[pair]);
-        intf_hrpwm_start(pair_to_ch[pair]);
+        (void)intf_hrpwm_init_pair(pwm_pair_channel(pair), &cfg[pair]);
+        (void)intf_hrpwm_start(pwm_pair_channel(pair));
     }
 }
 
 void pwm_set_duty(pwm_pair_t pair, float duty) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_set_duty(pair_to_ch[pair], duty);
-    }
+    if (!pwm_pair_is_valid(pair)) return;
+
+    (void)intf_hrpwm_set_duty(pwm_pair_channel(pair), duty);
 }
 
-void pwm_set_frequency(pwm_pair_t pair, uint32_t freq_hz) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_set_frequency(pair_to_inst[pair], freq_hz);
-    }
+void pwm_set_frequency(pwm_inst_t inst, uint32_t freq_hz) {
+    if (!pwm_inst_is_valid(inst)) return;
+
+    (void)intf_hrpwm_set_frequency(inst, freq_hz);
 }
 
 void pwm_set_jitter(pwm_pair_t pair, uint8_t jitter_cmp) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_set_jitter(pair_to_ch[pair], jitter_cmp);
-    }
+    if (!pwm_pair_is_valid(pair)) return;
+
+    (void)intf_hrpwm_set_jitter(pwm_pair_channel(pair), jitter_cmp);
 }
 
 void pwm_start(pwm_pair_t pair) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_start(pair_to_ch[pair]);
-    }
+    if (!pwm_pair_is_valid(pair)) return;
+
+    (void)intf_hrpwm_start(pwm_pair_channel(pair));
 }
 
 void pwm_stop(pwm_pair_t pair) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_stop(pair_to_ch[pair]);
-        intf_hrpwm_stop(pair_to_ch[pair] + 1);
-    }
+    if (!pwm_pair_is_valid(pair)) return;
+
+    (void)intf_hrpwm_stop(pwm_pair_channel(pair));
+    (void)intf_hrpwm_stop((intf_hrpwm_ch_t)(pwm_pair_channel(pair) + 1U));
 }
 
 void pwm_stop_all(void) {
@@ -99,17 +115,17 @@ void pwm_stop_all(void) {
 }
 
 void pwm_force_low(pwm_pair_t pair) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_force_low(pair_to_ch[pair]);
-        intf_hrpwm_force_low(pair_to_ch[pair] + 1);
-    }
+    if (!pwm_pair_is_valid(pair)) return;
+
+    (void)intf_hrpwm_force_low(pwm_pair_channel(pair));
+    (void)intf_hrpwm_force_low((intf_hrpwm_ch_t)(pwm_pair_channel(pair) + 1U));
 }
 
 void pwm_force_release(pwm_pair_t pair) {
-    if (pair < PWM_PAIR_COUNT) {
-        intf_hrpwm_force_release(pair_to_ch[pair]);
-        intf_hrpwm_force_release(pair_to_ch[pair] + 1);
-    }
+    if (!pwm_pair_is_valid(pair)) return;
+
+    (void)intf_hrpwm_force_release(pwm_pair_channel(pair));
+    (void)intf_hrpwm_force_release((intf_hrpwm_ch_t)(pwm_pair_channel(pair) + 1U));
 }
 
 void pwm_emergency_stop(void) {
@@ -132,30 +148,35 @@ void app_pwm_config_fault(void) {
         .active_low = true,
     };
 
-    intf_hrpwm_config_fault(0, &fault_cfg);
-    intf_hrpwm_config_fault(1, &fault_cfg);
+    (void)intf_hrpwm_config_fault((intf_hrpwm_inst_t)PWM_INST_0, &fault_cfg);
+    (void)intf_hrpwm_config_fault((intf_hrpwm_inst_t)PWM_INST_1, &fault_cfg);
 }
 
 void app_pwm_clear_fault(void) {
-    intf_hrpwm_clear_fault(0);
-    intf_hrpwm_clear_fault(1);
+    (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)PWM_INST_0);
+    (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)PWM_INST_1);
 }
 
-void pwm_set_phase(uint8_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
+void pwm_set_phase(pwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
     intf_hrpwm_phase_cfg_t cfg = {
         .inst = inst,
         .ref_pair = ref_pair,
         .target_pair = target_pair,
         .phase_deg = phase_deg,
     };
-    intf_hrpwm_set_phase(&cfg);
+    (void)intf_hrpwm_set_phase(&cfg);
 }
 
-void pwm_config_phase_limit(float max_phase_deg, float max_duty_ref, float max_duty_target) {
+void pwm_config_phase_limit(pwm_inst_t inst,
+                            float max_phase_deg,
+                            float max_duty_ref,
+                            float max_duty_target) {
+    if (!pwm_inst_is_valid(inst)) return;
+
     intf_hrpwm_phase_limit_t limit = {
         .max_phase_deg = max_phase_deg,
         .max_duty_ref = max_duty_ref,
         .max_duty_target = max_duty_target,
     };
-    intf_hrpwm_config_phase_limit(0, &limit);
+    (void)intf_hrpwm_config_phase_limit(inst, &limit);
 }

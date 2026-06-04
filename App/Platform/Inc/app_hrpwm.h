@@ -18,9 +18,15 @@ typedef enum {
     PWM_PAIR_COUNT,
 } pwm_pair_t;
 
+typedef enum {
+    PWM_INST_0 = 0,
+    PWM_INST_1,
+    PWM_INST_COUNT,
+} pwm_inst_t;
+
 void pwm_init(void);
 void pwm_set_duty(pwm_pair_t pair, float duty);
-void pwm_set_frequency(pwm_pair_t pair, uint32_t freq_hz);
+void pwm_set_frequency(pwm_inst_t inst, uint32_t freq_hz);
 void pwm_set_jitter(pwm_pair_t pair, uint8_t jitter_cmp);
 void pwm_start(pwm_pair_t pair);
 void pwm_stop(pwm_pair_t pair);
@@ -32,7 +38,10 @@ void pwm_resume(void);
 void app_pwm_config_fault(void);
 void app_pwm_clear_fault(void);
 
-void pwm_set_phase(uint8_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg);
-void pwm_config_phase_limit(float max_phase_deg, float max_duty_ref, float max_duty_target);
+void pwm_set_phase(pwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg);
+void pwm_config_phase_limit(pwm_inst_t inst,
+                            float max_phase_deg,
+                            float max_duty_ref,
+                            float max_duty_target);
 
 #endif /* APP_HRPWM_H */

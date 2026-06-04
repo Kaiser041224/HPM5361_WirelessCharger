@@ -10,17 +10,14 @@
 #include "SEGGER_RTT.h"
 #include "app_adc.h"
 #include "app_hrpwm.h"
+#include "app_sampling_sync.h"
 #include "board.h"
 #include "hpm_pwm_drv.h"
-#include "intf_adc.h"
 #include "intf_clock.h"
 #include "intf_hrpwm.h"
-#include "intf_trgm.h"
 
 #include <stdarg.h>
 #include <stdio.h>
-
-extern void hpm_adc_driver_register(void);
 
 ATTR_PLACE_AT_NONCACHEABLE_WITH_ALIGNMENT(4) static uint32_t pmt_dma0[48];
 ATTR_PLACE_AT_NONCACHEABLE_WITH_ALIGNMENT(4) static uint32_t pmt_dma1[48];
@@ -408,19 +405,22 @@ static const char* adc_ch_names[ADC_CH_COUNT] = {
     [ADC_CH_V_LINK] = "V_LINK", [ADC_CH_I_COIL] = "I_COIL", [ADC_CH_I_LF] = "I_LF  ",
 };
 
-#define ADC_VREF_MV (3300.0f)
-#define ADC_MAX_RAW (65535.0f)
-
 void app_debug_adc_dump_channels(void) {
-    app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
+    app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)   ADC(mV)  Sense(mV)  Physical\r\n");
 
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
         uint16_t raw = app_adc_read_raw(ch);
-        float mv = (float)raw * ADC_VREF_MV / ADC_MAX_RAW;
+        float adc_mv = 0.0f;
+        float sense_mv = 0.0f;
+        float physical = 0.0f;
+
+        (void)app_adc_read_adc_voltage_mv(ch, &adc_mv);
+        (void)app_adc_read_sense_voltage_mv(ch, &sense_mv);
+        (void)app_adc_read_physical(ch, &physical);
 
         app_debug_printf(
-            "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch],
-            (ch <= ADC_CH_V_LINK) ? 0 : 1, raw, raw, mv);
+            "[ADC]  %s   ADC%d  0x%04X   %5u   %8.1f   %9.1f   %8.3f\r\n", adc_ch_names[ch],
+            (ch <= ADC_CH_V_LINK) ? 0 : 1, raw, raw, adc_mv, sense_mv, physical);
     }
 }
 
@@ -436,11 +436,12 @@ void app_debug_adc_run_tests(void) {
         val[ch] = app_adc_read_raw(ch);
     }
 
-    app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
+    app_debug_write("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)   ADC(mV)\r\n");
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
-        float mv = (float)val[ch] * 3300.0f / 65535.0f;
+        float mv = 0.0f;
+        (void)app_adc_read_adc_voltage_mv(ch, &mv);
         app_debug_printf(
-            "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch],
+            "[ADC]  %s   ADC%d  0x%04X   %5u   %8.1f\r\n", adc_ch_names[ch],
             (ch <= ADC_CH_V_LINK) ? 0 : 1, val[ch], val[ch], mv);
     }
 }
@@ -480,48 +481,25 @@ void app_debug_adc_pmt_run_tests(void) {
     static bool initialized = false;
 
     if (!initialized) {
+        app_sampling_sync_cfg_t sync_cfg;
+
         initialized = true;
         app_debug_write("\r\n[RTT] === ADC PMT + PWM + TRGM Test ===\r\n");
 
         pwm_init();
-        intf_hrpwm_config_trigger_cmp(0, 8, 0.5f);
-        intf_hrpwm_config_trigger_cmp(1, 8, 0.5f);
-        intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
-        intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
 
-        hpm_adc_driver_register();
+        app_sampling_sync_get_default_config(&sync_cfg);
+        sync_cfg.adc0_dma_en = true;
+        sync_cfg.adc0_dma_buff = pmt_dma0;
+        sync_cfg.adc0_dma_buff_len = 48U;
+        sync_cfg.adc1_dma_en = true;
+        sync_cfg.adc1_dma_buff = pmt_dma1;
+        sync_cfg.adc1_dma_buff_len = 48U;
+        sync_cfg.adc0_cb = pmt_cb_adc0;
+        sync_cfg.adc1_cb = pmt_cb_adc1;
 
-        /* ADC0 TRG0A: V_IN(ch6)+I_IN(ch11)+I_L(ch2)+V_LINK(ch3) */
-        intf_adc_cfg_t cfg0 = {
-            .resolution = INTF_ADC_RES_DEFAULT,
-            .mode = INTF_ADC_MODE_PMT,
-            .sample_cycle = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
-            .clock_div = INTF_ADC_DEFAULT_CLOCK_DIV,
-            .dma_en = true,
-            .dma_buff = pmt_dma0,
-            .dma_buff_len = 48,
-            .pmt_trig_ch = 0,
-            .pmt_ch_count = 4,
-            .pmt_ch_list = {6, 11, 2, 3},
-            .pmt_cb = pmt_cb_adc0,
-        };
-        intf_adc_init(INTF_ADC_CH(0, 0), &cfg0);
-
-        /* ADC1 TRG1A: I_COIL(ch4)+I_LF(ch5), independent PMT DMA slot */
-        intf_adc_cfg_t cfg1 = {
-            .resolution = INTF_ADC_RES_DEFAULT,
-            .mode = INTF_ADC_MODE_PMT,
-            .sample_cycle = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
-            .clock_div = INTF_ADC_DEFAULT_CLOCK_DIV,
-            .dma_en = true,
-            .dma_buff = pmt_dma1,
-            .dma_buff_len = 48,
-            .pmt_trig_ch = 3,
-            .pmt_ch_count = 2,
-            .pmt_ch_list = {4, 5},
-            .pmt_cb = pmt_cb_adc1,
-        };
-        intf_adc_init(INTF_ADC_CH(1, 0), &cfg1);
+        (void)app_sampling_sync_init(&sync_cfg);
+        app_sampling_sync_start();
 
         app_debug_write("[ADC-PMT] initialized\r\n");
     }
