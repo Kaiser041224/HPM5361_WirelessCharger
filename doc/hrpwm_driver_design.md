@@ -45,6 +45,8 @@ void hpm_hrpwm_driver_register(void);
 
 ### 2.2 性能参数
 
+> **时钟域说明**：当前工程 `CPU0` 主频由 `PLL0` 配置为 **480MHz**，但 PWM 使用的 `clock_mot0` 位于 **AHB / 外设时钟域**，当前按 **120MHz** 计算。因此下表中的 `120MHz` 是 PWM 所见的外设时钟，不是 CPU 核心时钟。
+
 | 参数 | 值 | 说明 |
 |------|-----|------|
 | **时钟源** | `clock_mot0` (AHB) | 120 MHz |

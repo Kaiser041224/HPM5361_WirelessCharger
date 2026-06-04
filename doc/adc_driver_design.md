@@ -80,8 +80,9 @@ void hpm_adc_driver_register(void);
 
 ### 2.5 时钟
 
-- 时钟源：`clock_adc0` / `clock_adc1`（AHB 总线时钟，典型 120 MHz）
-- 时钟分频：可配置 1–16，驱动自动遵守 **≤ 50 MHz** 手册限制（120 MHz 下最小分频 ≥ 3）
+- **时钟域说明**：当前工程 `CPU0` 主频实际配置为 **480MHz**，但 `clock_adc0` / `clock_adc1` 取自 **AHB / 外设时钟域**，当前按 **120MHz** 理解。以下表格中的 `120MHz` 指 ADC 上游总线时钟，不是 CPU 核心时钟。
+- 时钟源：`clock_adc0` / `clock_adc1`（AHB 总线时钟，当前 120 MHz）
+- 时钟分频：可配置 1–16，驱动自动遵守 **≤ 50 MHz** 手册限制（120 MHz 上游时钟下最小分频 ≥ 3）
 - `sample_cycle`：可配置 1–2³²（0 = 默认 20），影响每次转换的采样时长
 - 单次转换耗时 ≈ (sample_cycles + conv_cycles) / ADC 时钟
 

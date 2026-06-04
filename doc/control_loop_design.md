@@ -1,562 +1,709 @@
-# 控制环路设计说明
+# 控制环设计说明（基于当前工程实际配置）
 
-本文档描述 HPM5361 无线充电器项目的控制环路架构设计，包括 PWM-ADC 同步机制、控制算法选择、时序分析和实现方案。
+本文档仅基于当前仓库 **已经存在的代码、配置和验证路径** 进行整理，目标是回答两个问题：
 
-> **设计状态**：设计讨论阶段
+1. 当前 `HRPWM + TRGM + ADC PMT` 的同步采样链路是如何工作的；
+2. 在不大改现有架构的前提下，电感电流快环应如何接入，以及多快的更新频率是现实可行的。
+
+> **文档状态**：基于当前工程代码的现状整理
 >
-> **目标应用**：无线充电器功率控制（电流环/电压环）
+> **约束原则**：只写当前代码已经实现或能直接推导出的内容；不引入尚不存在的 `intf_control` / `drv_control` 一类抽象接口；对未来方案仅写成“建议下一步”。
 
 ---
 
-## 1. 控制需求分析
+## 1. 当前工程事实基线
 
-### 1.1 控制目标
+### 1.1 App 层现状
 
-| 参数 | 要求 | 说明 |
-|------|------|------|
-| **控制对象** | 输出电流/电压 | 无线充电功率调节 |
-| **PWM频率** | 200kHz / 148kHz | 已配置 |
-| **控制周期** | 1个PWM周期 (5us / 6.75us) | 每个PWM周期更新一次占空比 |
-| **响应时间** | < 10个PWM周期 | 快速响应负载变化 |
-| **稳态精度** | < 1% | 电流/电压稳定 |
+当前 `App/` 目录已拆分为：
 
-### 1.2 控制环路层级
+- `Application/`：业务编排预留层（当前仍是骨架）
+- `Control/`：控制逻辑预留层（当前仍是骨架）
+- `Algorithm/`：算法库预留层（当前仍是骨架）
+- `Platform/`：已存在的应用级平台封装
+- `Debug/`：当前实际运行入口和调试验证路径
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        外环（电压环）                             │
-│  输入：输出电压 Vout                                              │
-│  输出：电流参考值 Iref                                            │
-│  带宽：1-10kHz                                                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ↓ Iref
-┌─────────────────────────────────────────────────────────────────┐
-│                        内环（电流环）                             │
-│  输入：电感电流 IL                                                │
-│  输出：PWM占空比 D                                               │
-│  带宽：10-50kHz                                                  │
-│  执行频率：200kHz (每个PWM周期)                                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ↓ D
-┌─────────────────────────────────────────────────────────────────┐
-│                        PWM输出                                   │
-│  频率：200kHz                                                    │
-│  模式：中心对齐                                                  │
-│  分辨率：600级 (9.2-bit)                                         │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 2. 硬件资源配置
-
-### 2.1 PWM资源
-
-| 资源 | 实例 | 用途 | 引脚 |
-|------|------|------|------|
-| **PWM0** | HPM_PWM0 | 主功率PWM | PA24-PA27 |
-| **PWM1** | HPM_PWM1 | 辅助PWM | PA28-PA31 |
-
-**PWM配置**：
-- 模式：中心对齐 (Center Aligned)
-- 频率：200kHz (Reload=600 @120MHz)
-- 死区：10ns
-- 抖动：jitter_cmp=4
-
-### 2.2 ADC采样通道分配
-
-#### 2.2.1 硬件拓扑
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           四开关Buck-Boost (PWM0)                           │
-│                                                                             │
-│    Vin ──┤L1├── Vout                                                        │
-│           │                                                                 │
-│           ↓ IL_BUCK                                                         │
-│    ┌──────────┐                                                             │
-│    │ 检流电阻  │ → INA240A2 → PB08 (Buck-Boost输入电流)                      │
-│    └──────────┘                                                             │
-│                                                                             │
-│    ┌──────────┐                                                             │
-│    │ 检流电阻  │ → INA240A2 → PB10 (电感电流)                               │
-│    └──────────┘                                                             │
-│                                                                             │
-│    PB14 → Buck-Boost输入电压                                                │
-│    PB11 → V_LINK (Buck-Boost输出 / LCC全桥输入)                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           全桥LCC (PWM1)                                    │
-│                                                                             │
-│    ┌──────────┐     ┌──────────┐                                            │
-│    │ 电流互感器│ →   │ Rburden  │ → PB13 (LCC谐振电流)                        │
-│    └──────────┘     └──────────┘                                            │
-│                                                                             │
-│    ┌──────────┐     ┌──────────┐                                            │
-│    │ 电流互感器│ →   │ Rburden  │ → PB12 (线圈电流)                            │
-│    └──────────┘     └──────────┘                                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-#### 2.2.2 ADC通道映射表
-
-| 引脚 | 当前代码实例 | ADC通道 | 物理量 | 采样电路 | 前端系数 | 说明 |
-|------|--------------|---------|--------|----------|----------|------|
-| **PB14** | ADC0 | CH6 | Buck-Boost输入电压 `V_IN` | 100k + 3.3k, 1% 电阻分压 | `Vadc = Vin × 3.3k / 103.3k` | 对应 `ADC_CH_V_IN` |
-| **PB08** | ADC0 | CH11 | Buck-Boost输入母线电流 `I_IN` | 2mΩ 采样电阻 + INA240A2 | `Vadc = I × 0.002Ω × 50 = I × 0.1V/A` | 对应 `ADC_CH_I_IN` |
-| **PB10** | ADC0 | CH2 | 电感电流 `I_L` | 2mΩ 采样电阻 + INA240A2 | `Vadc = I × 0.1V/A` | 对应 `ADC_CH_I_L` |
-| **PB11** | ADC0 | CH3 | `V_LINK` (Buck-Boost输出 / LCC全桥输入) | 100k + 3.3k, 1% 电阻分压 | `Vadc = Vlink × 3.3k / 103.3k` | 对应 `ADC_CH_V_LINK` |
-| **PB12** | ADC1 | CH4 | 线圈电流 `I_COIL` | CST2-100L 互感器 + `Rburden=5.1Ω` | `Vadc = Ipri / 100 × 5.1Ω = Ipri × 0.051V/A` | 对应 `ADC_CH_I_COIL` |
-| **PB13** | ADC1 | CH5 | LCC谐振电流 `I_LF` | CST2-100L 互感器 + `Rburden=5.1Ω` | `Vadc = Ipri / 100 × 5.1Ω = Ipri × 0.051V/A` | 对应 `ADC_CH_I_LF` |
-
-#### 2.2.3 采样电路参数
-
-| 采样电路 | 参数 | 当前值 | 换算关系 |
-|----------|------|--------|----------|
-| **电流采样** | 采样电阻 | `Rsense = 2mΩ` | 采样电阻压降 `Vsense = I × 0.002Ω` |
-| **电流采样** | 放大器 | `INA240A2`, `Gain = 50V/V` | ADC 输入 `Vadc = I × 0.002Ω × 50 = I × 0.1V/A` |
-| **电压采样** | 分压电阻 | `Rtop = 100kΩ`, `Rbot = 3.3kΩ`, `1%` | `Vadc = Vin × 3.3 / 103.3`，反算 `Vin = Vadc × 31.303` |
-| **互感器采样** | 电流互感器 | `CST2-100L` | 按 100:1 变比计算，`Isec = Ipri / 100` |
-| **互感器采样** | 负载电阻 | `Rburden = 5.1Ω` | `Vadc = Ipri / 100 × 5.1 = Ipri × 0.051V/A` |
-
-> 说明：ADC Driver 当前只输出 raw 或 ADC 引脚电压；以上物理量换算属于 App/控制算法层职责，不写入 Driver 层，保持 `AGENTS.md` 要求的硬件抽象边界。
-
-16-bit ADC、`Vref=3.3V` 时的理想满量程参考：
-
-| 物理量 | 反算公式 | 3.3V ADC 满量程 |
-|--------|----------|-----------------|
-| 分流电阻 + INA240A2 电流 | `I = Vadc / 0.1` | `33.0A` |
-| 100k + 3.3k 分压电压 | `Vin = Vadc × 31.303` | `≈103.3V` |
-| CST2-100L + 5.1Ω 互感器电流 (`I_COIL` / `I_LF`) | `Ipri = Vadc / 0.051` | `≈64.7A` |
-
-#### 2.2.4 ADC配置
+当前 `App/main.c` 并未进入正式控制流程，而是默认执行：
 
 ```c
-/* ADC通道定义（依据 HPM5361 数据手册）*/
-#define ADC_CH_BUCK_BOOST_I_IN    (11U)   /* PB08: Buck-Boost输入母线电流  → ADC ch11 */
-#define ADC_CH_INDUCTOR_I         (2U)    /* PB10: Buck-Boost电感电流     → ADC ch2  */
-#define ADC_CH_V_LINK              (3U)    /* PB11: V_LINK (Buck-Boost输出 / LCC全桥输入) → ADC ch3 */
-#define ADC_CH_COIL_I             (4U)    /* PB12: 发射线圈电流           → ADC ch4  */
-#define ADC_CH_LCC_RESONANT_I     (5U)    /* PB13: LCC谐振电流            → ADC ch5  */
-#define ADC_CH_BUCK_BOOST_V_IN    (6U)    /* PB14: Buck-Boost输入电压     → ADC ch6  */
-
-/* ADC 配置（本项目统一使用 16-bit 分辨率）*/
-#define ADC_VREF_MV               (3300.0f)       /* 参考电压 mV */
-#define ADC_RES_MAX               (65535U)        /* 16-bit 满量程 */
-```
-
-### 2.3 TRGM资源
-
-#### 2.3.1 触发路由配置
-
-| 信号源 | 目标 | 用途 | 说明 |
-|--------|------|------|------|
-| **PWM0_SYNCI** | ADC0_STRGI | PWM0中心点触发ADC序列采样 | Buck-Boost控制 |
-| **PWM0_CH8REF** | ADCX_PTRGI0A | PWM0中心点触发 ADC0 PMT 抢占采样 | Buck-Boost 电流/电压采样 |
-| **PWM1_CH8REF** | ADCX_PTRGI1A | PWM1中心点触发 ADC1 PMT 抢占采样 | LCC 电流采样 |
-
-#### 2.3.2 双PWM触发策略
-
-由于有两个独立的PWM输出（PWM0和PWM1），需要考虑ADC采样的同步策略：
-
-```
-方案A：独立触发（推荐）
-┌─────────────────────────────────────────────────────────────────┐
-│  PWM0中心点 ──→ ADC抢占触发0 ──→ 采样Buck-Boost相关通道          │
-│  PWM1中心点 ──→ ADC抢占触发1 ──→ 采样LCC相关通道                │
-└─────────────────────────────────────────────────────────────────┘
-优点：两个拓扑独立控制，互不干扰
-缺点：需要两组触发配置
-
-方案B：交替触发
-┌─────────────────────────────────────────────────────────────────┐
-│  PWM0中心点 ──→ ADC抢占触发0 ──→ 采样所有通道                    │
-│  PWM1中心点 ──→ ADC抢占触发1 ──→ 采样所有通道                    │
-└─────────────────────────────────────────────────────────────────┘
-优点：采样频率加倍
-缺点：控制周期不一致
-
-方案C：主从触发
-┌─────────────────────────────────────────────────────────────────┐
-│  PWM0中心点 ──→ ADC抢占触发0 ──→ 采样所有通道（主）              │
-│  PWM1中心点 ──→ 不触发ADC（从）                                  │
-└─────────────────────────────────────────────────────────────────┘
-优点：简化配置
-缺点：PWM1控制延迟
-```
-
-**推荐方案A**：独立触发，两个拓扑独立控制。
-
-#### 2.3.3 ADC采样分组
-
-| 触发源 | ADC通道 | 物理量 | 控制环路 |
-|--------|---------|--------|----------|
-| **PWM0触发 (Buck-Boost)** | CH11 | Buck-Boost 输入母线电流 | 输入电流保护 |
-| | CH2 | 电感电流 | **电流环主反馈** |
-| | CH3 | V_LINK (Buck-Boost输出 / LCC全桥输入) | **电压环主反馈** |
-| | CH6 | Buck-Boost 输入电压 | 前馈/保护 |
-| **PWM1触发 (LCC)** | CH4 | 线圈电流 | 副边电流控制 |
-| | CH5 | LCC谐振电流 | **谐振电流监测** |
-
-#### 2.3.4 当前 PMT ADC DMA 状态
-
-当前工程采用 **PWM→TRGM→ADC PMT→ADC 内部 DMA→ISR 回调** 的硬件链路，已完成 ADC0/ADC1 双实例实测：
-
-| ADC实例 | PWM触发源 | TRGM目标 | `pmt_trig_ch` | DMA buffer | DMA slot | 采样通道 |
-|---------|-----------|----------|---------------|------------|----------|----------|
-| ADC0 | `PWM0_CH8REF` | `ADCX_PTRGI0A` | 0 | `pmt_dma0[48]` | `pmt_dma0[0..3]` | ch6, ch11, ch2, ch3 |
-| ADC1 | `PWM1_CH8REF` | `ADCX_PTRGI1A` | 3 | `pmt_dma1[48]` | `pmt_dma1[12..13]` | ch4, ch5 |
-
-PMT DMA buffer 的关键规则：
-
-```text
-slot_base = pmt_trig_ch * 4
-value[i]  = ((adc16_pmt_dma_data_t *)&dma_buff[slot_base])[i].result
-```
-
-因此 ADC1 使用 `TRG1A` / `pmt_trig_ch=3` 时，结果不在 `dma_buff[0]`，而在 `dma_buff[12]` 开始的位置。历史 ADC1 不更新问题的主要原因就是 Driver 固定从 `dma_buff[0]` 读取，导致读错 PMT DMA slot。
-
-当前调用链：
-
-```text
-app_debug_adc_pmt_run_tests()
-  ├─ pwm_init()
-  ├─ intf_hrpwm_config_trigger_cmp(0, 8, 0.5f)
-  ├─ intf_hrpwm_config_trigger_cmp(1, 8, 0.5f)
-  ├─ intf_trgm_connect(PWM0_CH8REF, ADCX_PTRGI0A)
-  ├─ intf_trgm_connect(PWM1_CH8REF, ADCX_PTRGI1A)
-  ├─ intf_adc_init(INTF_ADC_CH(0, 0), cfg0)
-  └─ intf_adc_init(INTF_ADC_CH(1, 0), cfg1)
-
-硬件运行时：
-  PWMx CH8REF
-    → TRGM ADCX_PTRGIxA
-    → ADCx PMT queue
-    → ADC internal PMT DMA 写入对应 slot
-    → IRQn_ADC0/IRQn_ADC1
-    → drv_adc.c: adc_generic_isr(inst)
-    → pmt_cb(values)
-```
-
-设计约束：
-
-- ADC0 和 ADC1 必须使用独立 DMA buffer，避免调试和控制逻辑共享同一结果区。
-- 非 0 `pmt_trig_ch` 必须按 `pmt_trig_ch * 4` 读取 DMA slot。
-- ADC1 推荐使用 `ADCX_PTRGI1A`，不要与 ADC0 混用 `PTRGI0x` 组。
-- Driver 层负责 ADC 时钟、PMT DMA slot 和 ISR 状态处理；App 层只通过 `Interface/` 配置 HRPWM/TRGM/ADC，不直接操作 ADC SDK 寄存器。
-
----
-
-## 3. 控制环路时序
-
-### 3.1 单周期时序图
-
-```
-PWM周期 = 5us (@200kHz)
-
-时间轴: 0        1        2        3        4        5us
-        |--------|--------|--------|--------|--------|
-        
-Counter: 0 ──────→ 300 ──────→ 600 ──────→ 300 ──────→ 0
-                   │         │         │         │
-PWM输出:   Low     │  High   │  High   │  High   │  Low
-                   │         │         │         │
-                   │         ↑         │         │
-                   │    PWM中心点      │         │
-                   │    (Reload)       │         │
-                   │         │         │         │
-ADC触发:   ────────┴─────────↑─────────┴─────────┘
-                            硬件触发
-                   │         │         │         │
-ADC采样:           │    ┌────┴────┐    │         │
-                   │    │  ~1us  │    │         │
-                   │    └────────┘    │         │
-                   │         │         │         │
-控制计算:          │         │    ┌────┴────┐    │
-                   │         │    │  ~1us  │    │
-                   │         │    └────────┘    │
-                   │         │         │         │
-PWM更新:           │         │         │    ┌────┴────┐
-                   │         │         │    │ 下周期  │
-                   │         │         │    │  生效   │
-                   │         │         │    └────────┘
-```
-
-### 3.2 控制延迟分析
-
-| 阶段 | 时间 | 说明 |
-|------|------|------|
-| PWM中心点 → ADC触发 | ~0ns | 硬件直连，无延迟 |
-| ADC采样 | ~1us | 取决于采样周期配置 |
-| ADC完成 → 中断响应 | ~100ns | 中断延迟 |
-| 控制计算 | ~1us | PID计算 + 查表 |
-| PWM更新 | 1个周期 | 下个周期生效 |
-| **总延迟** | **~1个PWM周期** | 从采样到生效 |
-
----
-
-## 4. 控制算法设计
-
-### 4.1 增量式PID
-
-```c
-/*
- * 增量式PID控制器
- * 优点：无积分饱和问题，输出平滑
- */
-typedef struct {
-    float kp;              /* 比例系数 */
-    float ki;              /* 积分系数 */
-    float kd;              /* 微分系数 */
-    float error[3];        /* error[0]=当前, error[1]=上次, error[2]=上上次 */
-    float output;          /* 当前输出 */
-    float output_max;      /* 输出上限 */
-    float output_min;      /* 输出下限 */
-} pid_incremental_t;
-
-float pid_incremental_calculate(pid_incremental_t *pid, float target, float measured)
-{
-    pid->error[2] = pid->error[1];
-    pid->error[1] = pid->error[0];
-    pid->error[0] = target - measured;
-    
-    /* 增量计算 */
-    float delta = pid->kp * (pid->error[0] - pid->error[1])
-                + pid->ki * pid->error[0]
-                + pid->kd * (pid->error[0] - 2.0f * pid->error[1] + pid->error[2]);
-    
-    pid->output += delta;
-    
-    /* 输出限幅 */
-    if (pid->output > pid->output_max) {
-        pid->output = pid->output_max;
-    } else if (pid->output < pid->output_min) {
-        pid->output = pid->output_min;
-    }
-    
-    return pid->output;
+while (1) {
+    app_debug_adc_pmt_run_tests();
+    intf_clock_delay_ms(1000);
 }
 ```
 
-### 4.2 位置式PID（带积分限幅）
+因此，当前仓库中 **真实跑通的 PWM-ADC 联动入口** 是 `App/Debug/Src/app_debug_rtt.c` 里的 PMT 测试路径，而不是正式控制器。
+
+---
+
+### 1.2 当前 PWM 配置
+
+> **时钟域说明**：当前工程 `CPU0` 主频由 `PLL0` 配置为 **480MHz**，但 PWM 与 ADC 的时间预算仍应按外设侧时钟计算：当前 `AHB = 120MHz`，`clock_mot0 = 120MHz`，`clock_adc0/1` 上游也按 `120MHz` 计算，然后 ADC 再通过 `clock_div` 降频。
+
+当前 `App/Platform/Src/app_hrpwm.c` 默认配置如下：
+
+| Pair | PWM 实例 | 频率 | 对齐模式 | 初始 duty | 死区 |
+|------|----------|------|----------|-----------|------|
+| `PWM_PAIR_0` | `PWM0` | `200kHz` | 中心对齐 | `0.5` | `10ns` |
+| `PWM_PAIR_1` | `PWM0` | `200kHz` | 中心对齐 | `0.3` | `10ns` |
+| `PWM_PAIR_2` | `PWM1` | `148kHz` | 中心对齐 | `0.5` | `25ns` |
+| `PWM_PAIR_3` | `PWM1` | `148kHz` | 中心对齐 | `0.4` | `25ns` |
+
+当前控制讨论主要聚焦在 `PWM0 / ADC0 / I_L` 这一条链路，也就是 `200kHz` 电感电流快环。
+
+---
+
+### 1.3 当前 ADC 配置
+
+当前 `App/Platform/Src/app_adc.c` / `app_sampling_sync.c` 使用的默认 ADC 参数为：
+
+| 项目 | 当前值 | 来源 |
+|------|--------|------|
+| 分辨率 | `16-bit` | `INTF_ADC_RES_DEFAULT` |
+| `sample_cycle` | `20` | `INTF_ADC_DEFAULT_SAMPLE_CYCLE` |
+| `clock_div` | `3` | `INTF_ADC_DEFAULT_CLOCK_DIV` |
+| `vref_mv` | `3300mV` | `INTF_ADC_DEFAULT_VREF_MV` |
+| 采样模式 | `PMT` | `app_sampling_sync_init_adc0/1()` |
+
+ADC 上游时钟来自 AHB `120MHz`，按 `clock_div = 3` 计算：
+
+```text
+ADC clock = 120MHz / 3 = 40MHz
+ADC cycle = 25ns
+```
+
+16-bit 单通道转换时间近似为：
+
+```text
+t_conv ≈ (sample_cycle + conv_cycle_16bit) / f_adc
+       ≈ (20 + 21) / 40MHz
+       ≈ 1.025us
+```
+
+这个结论与当前 `doc/adc_driver_design.md` 中的表格一致。
+
+---
+
+## 2. 当前同步采样链路
+
+### 2.1 ADC 通道映射
+
+当前 `App/Platform/Inc/app_adc.h` 中定义的逻辑通道如下：
+
+| 逻辑通道 | ADC实例 | 物理通道 | 引脚 | 说明 |
+|----------|---------|----------|------|------|
+| `ADC_CH_V_IN` | ADC0 | ch6 | PB14 | Buck-Boost 输入电压 |
+| `ADC_CH_I_IN` | ADC0 | ch11 | PB08 | 输入母线电流 |
+| `ADC_CH_I_L` | ADC0 | ch2 | PB10 | **电感电流** |
+| `ADC_CH_V_LINK` | ADC0 | ch3 | PB11 | 级联母线电压 |
+| `ADC_CH_I_COIL` | ADC1 | ch4 | PB12 | 线圈电流 |
+| `ADC_CH_I_LF` | ADC1 | ch5 | PB13 | LCC 谐振电流 |
+
+---
+
+### 2.2 当前 PMT 分组配置
+
+`App/Platform/Src/app_sampling_sync.c` 当前固定配置为：
+
+#### ADC0（由 PWM0 触发）
+
+```text
+pmt_trig_ch = 0
+channels     = { ch6, ch11, ch2, ch3 }
+            = { V_IN, I_IN, I_L, V_LINK }
+```
+
+#### ADC1（由 PWM1 触发）
+
+```text
+pmt_trig_ch = 3
+channels     = { ch4, ch5 }
+            = { I_COIL, I_LF }
+```
+
+因此当前 PMT 并不是“只采一个关键量”的 fast path，而是“多通道同步监测/调试路径”。
+
+---
+
+### 2.3 当前触发与回调调用链
+
+当前已经实际跑通的调用链是：
+
+```text
+main.c
+  -> app_debug_adc_pmt_run_tests()
+      -> pwm_init()
+      -> app_sampling_sync_get_default_config()
+      -> app_sampling_sync_init(&sync_cfg)
+          -> intf_hrpwm_config_trigger_cmp(PWM_INST_0, cmp8, 0.5f)
+          -> intf_hrpwm_config_trigger_cmp(PWM_INST_1, cmp8, 0.5f)
+          -> intf_trgm_connect(PWM0_CH8REF -> ADC_PTRGI0A)
+          -> intf_trgm_connect(PWM1_CH8REF -> ADC_PTRGI1A)
+          -> intf_adc_init(...PMT for ADC0...)
+          -> intf_adc_init(...PMT for ADC1...)
+      -> app_sampling_sync_start()
+          -> app_adc_pmt_start_inst(APP_ADC_INST_0)
+          -> app_adc_pmt_start_inst(APP_ADC_INST_1)
+```
+
+硬件运行后，中断回流链路为：
+
+```text
+PWM compare trigger
+  -> TRGM
+    -> ADC PMT queue
+      -> ADC conversion complete
+        -> drv_adc.c: adc_generic_isr(inst)
+          -> ai->pmt.cb(...)
+            -> App callback (当前是 Debug 中的 pmt_cb_adc0/pmt_cb_adc1)
+```
+
+当前 `drv_adc.c` 在 PMT 回调中会：
+
+- DMA 模式下，从 `pmt_trig_ch * 4` 对应 slot 读取结果；
+- 非 DMA 模式下，从 `BUS_RESULT[]` 取回结果；
+- 再调用上层注册的 `pmt_cb`。
+
+---
+
+## 3. 当前可用于快环的两个实时入口
+
+### 3.1 ADC PMT callback
+
+当前工程已经具备 ADC PMT 完成回调能力。
+
+特点：
+
+- 触发点与 PWM compare 同步
+- 回调发生在 **采样转换完成后**
+- 是“数据可用事件”，不是“PWM 周期边界事件”
+
+适合做：
+
+- 锁存关键样本
+- 更新采样邮箱
+- 轻量计数/统计
+
+不适合直接承载大量逻辑，除非该逻辑极短且样本路径极简。
+
+---
+
+### 3.2 PWM reload IRQ
+
+当前工程也已经具备 PWM reload 中断能力：
+
+- `Interface/intf_hrpwm.h`
+  - `intf_hrpwm_config_reload_irq()`
+  - `intf_hrpwm_enable_reload_irq()`
+  - `intf_hrpwm_disable_reload_irq()`
+- `Driver/hpm_impl/drv_hrpwm.c`
+  - `IRQn_PWM0` / `IRQn_PWM1`
+  - `PWM_IRQ_RELOAD`
+  - `hrpwm_reload_callback[]`
+- `App/Debug/Src/app_debug_rtt.c`
+  - 已验证实例级 reload callback 注册与启停
+
+特点：
+
+- 每个 PWM 周期边界都会进入
+- 更适合作为“更新下一周期占空比”的边界同步点
+- 与 compare shadow 更新语义天然一致
+
+---
+
+## 4. 当前配置下的时间预算分析
+
+### 4.1 PWM 周期
+
+以 `PWM0 = 200kHz` 为例：
+
+```text
+T_pwm = 1 / 200000 = 5us
+CPU cycles @480MHz = 5us * 480 = 2400 cycles
+PWM ticks  @120MHz = 5us * 120 = 600 ticks
+```
+
+---
+
+### 4.2 当前 ADC0 一次 PMT 触发的总转换时间
+
+当前 ADC0 一次 PMT 触发采 4 路：
+
+- `V_IN`
+- `I_IN`
+- `I_L`
+- `V_LINK`
+
+按单通道约 `1.025us` 估算：
+
+```text
+t_adc0_group ≈ 4 * 1.025us = 4.10us
+```
+
+这还不包含：
+
+- 中断响应延迟
+- ISR 入口/出口
+- callback 分发
+
+因此实际可粗略看作：
+
+```text
+t_pmt_callback_arrival ≈ 4.1us ~ 4.4us
+```
+
+---
+
+### 4.3 对 200kHz 周期的影响
+
+如果仍沿用当前 ADC0 四通道 PMT 分组，则：
+
+```text
+T_pwm = 5.0us
+t_pmt_callback_arrival ≈ 4.1us ~ 4.4us
+```
+
+剩余时间仅约：
+
+```text
+0.6us ~ 0.9us
+≈ 72 ~ 108 PWM/外设 ticks
+≈ 288 ~ 432 CPU cycles @480MHz
+```
+
+这段时间需要完成：
+
+- callback 取数
+- 电流换算
+- 单 PI 计算
+- duty 限幅
+- `set_duty()` 调用
+- compare shadow 更新
+
+### 判断
+
+在当前多通道 PMT 配置下，**几乎不建议尝试“同一 PWM 周期内完成采样、转换、计算、更新下一周期 duty”**，余量过小，不适合作为稳定设计基础。
+
+---
+
+### 4.4 对 148kHz 周期的影响
+
+`PWM1 = 148kHz` 时：
+
+```text
+T_pwm ≈ 6.76us
+剩余时间 ≈ 6.76 - 4.10 = 2.66us
+≈ 319 PWM/外设 ticks @120MHz
+≈ 1277 CPU cycles @480MHz
+```
+
+虽然比 `200kHz` 宽裕，但若仍沿用当前多通道 PMT + 通用 `set_duty()` 路径，仍然偏紧，尤其在 ISR 中使用 float 时不够从容。
+
+---
+
+## 5. 基于当前配置的方案收敛
+
+### 5.1 不建议的方案
+
+#### 方案 A：保持当前 4 通道 PMT 组，并在 ADC callback 中直接单 PI + `set_duty()`
+
+| 条件 | 结论 |
+|------|------|
+| `200kHz` / 当前 4 通道 PMT | **不建议** |
+| `148kHz` / 当前 4 通道 PMT | 可做实验，但不建议作为正式设计 |
+
+原因很简单：回调回得太晚，给控制更新留下的时间窗口过窄。
+
+这里需要特别说明：
+
+- 问题的主矛盾不是 `CPU0 = 480MHz` 不够算；
+- 问题主要在于当前 ADC0 的 PMT 分组一次采了 `4` 路，导致 **ADC callback 到达时刻本身就已经太靠近周期末端**；
+- 即使 CPU 运算预算比之前按 `120MHz` 估计的更大，当前多通道 PMT 方案在 `200kHz` 下仍然不适合做真正的逐周期闭环更新。
+
+---
+
+### 5.2 PWM0 + ADC0（Buck-Boost）采用的方案
+
+结合当前工程配置与时间预算，`PWM0 + ADC0` 这条链路的设计决定收敛为：
+
+## **每个 PWM 周期都同步采样，但控制器每 4 个 PWM 周期更新一次**
+
+也就是：
+
+- 每个周期都采 `I_L`
+- 每个周期都进入 ADC PMT callback 并更新样本统计
+- 每个周期都进入 PWM reload IRQ
+- 仅当 `subcycle_div == 4` 时执行一次 PI 并更新 duty
+
+它本质上是一个“伪逐周期”的电感电流快环。
+
+以 `200kHz` 为例，若按 `4` 周期更新：
+
+| 更新间隔 | 控制更新频率 | 控制更新周期 |
+|----------|--------------|--------------|
+| 每 4 周期 | 50kHz | 20us |
+
+当前明确选择 `N = 4` 的原因：
+
+- 继续复用现有 PMT 多通道链路，避免第一版就拆 fast path；
+- `20us` 控制预算足以容纳样本平均、单 PI、限幅和当前通用 `set_duty()` 路径；
+- 对调试和参数整定更友好；
+- 仍然保留较高的快环更新频率（`50kHz`）。
+
+---
+
+### 5.3 PWM0 + ADC0 的推荐实现方式
+
+#### 推荐模式：每周期采样 + 每 4 周期更新
+
+```text
+每个 PWM 周期：
+  ADC PMT callback
+    -> 读取 I_L 样本
+    -> 参与 4 点简单均值滤波
+
+每个 PWM reload IRQ：
+  if (++subcycle >= 4)
+      执行一次电流环 PI
+      更新 duty
+```
+
+当前推荐的具体处理方式为：
+
+- `N = 4`；
+- PI 输入取最近 `4` 个周期样本的简单均值；
+- duty 更新点建议放在 PWM reload IRQ，而不是放在 ADC callback 中。
+
+#### 每 4 周期更新时：取数、计算、应用结果分别发生在什么时候？
+
+这个问题的关键是区分三个动作：
+
+1. **取数**：每个 PWM 周期都在 ADC PMT callback 中进行；
+2. **计算**：每个 PWM 周期结束时都会进入一次 reload IRQ，但只有累计满 `4` 个样本后的那个周期边界才真正执行 PI；
+3. **应用结果**：在该周期边界的 reload IRQ 中写入 compare shadow，新的 duty 从**紧接着开始的下一 PWM 周期**生效。
+
+可以把一个“4 周期快环更新窗口”理解为下图：
+
+```text
+以 PWM0 = 200kHz 为例：每周期 5us，4周期 = 20us
+
+周期:            k            k+1          k+2          k+3          k+4
+时间:         0~5us        5~10us       10~15us      15~20us      20~25us
+
+周期内部:      [采样1]       [采样2]       [采样3]       [采样4]       [采样5]
+                 │             │             │             │
+ADC回调:         I_L1          I_L2          I_L3          I_L4
+                 │             │             │             │
+样本累计:       acc+=I_L1     acc+=I_L2     acc+=I_L3     acc+=I_L4
+                 cnt=1         cnt=2         cnt=3         cnt=4
+
+周期边界:         |             |             |             |             |
+reload IRQ:     end(k)       end(k+1)      end(k+2)      end(k+3)      end(k+4)
+                 │             │             │             │
+控制决策:        跳过          跳过          跳过          avg=(I_L1+I_L2+I_L3+I_L4)/4
+                                                             -> PI(avg)
+                                                             -> duty_next
+                                                             -> 写 compare shadow
+                                                                           │
+新 duty 生效:                                                             从周期 k+4 开始生效
+```
+
+这里必须注意一个隐含前提：
+
+- 第 `k+3` 个周期内的采样点和 ADC callback 必须发生在 `end(k+3)` 之前；
+- 当前采用 `trigger_position_ratio = 0.5f`，即采样点位于该周期中部附近，因此样本 `I_L4` 会先到达，再进入该周期末的 `reload IRQ`；
+- 也正因为如此，`reload IRQ @ end(k+3)` 才能使用 `I_L1 ~ I_L4` 这四个样本计算出 `duty_next`。
+
+更直观地说：
+
+- 周期 `k ~ k+3`：只采样、累积、计数；
+- 周期 `k+3` 结束时的 `reload IRQ`：完成 `4` 个样本的均值计算和 PI；
+- 周期 `k+4`：新的 duty 生效；
+- 然后重新开始下一组 `4` 周期的采样累积。
+
+因此这里虽然不是“每周期都更新 duty”，但它依然保持了两个关键特性：
+
+- **采样始终与 PWM 同步**；
+- **占空比更新始终在 PWM 周期边界生效**。
+
+这就是它被称为“伪逐周期”快环的原因：
+
+- 不是每个周期都算；
+- 但一旦更新，仍然遵循同步采样 + 边界更新的控制语义。
+
+#### 为什么伪逐周期并不是“单次计算窗口突然变大”
+
+这一点需要特别澄清：
+
+如果实现方式是：
+
+```text
+第 4 个 ADC callback 到来
+  -> 做 4 点均值
+  -> 做 PI
+  -> set_duty()
+```
+
+那么你对它的质疑是成立的：
+
+- **最后那一次控制计算本身的尾部窗口并没有显著变大**；
+- 它仍然受制于“ADC callback 回来得太靠近周期末端”这个事实；
+- 只是把“每周期都做一次重计算”变成了“每 4 个周期做一次重计算”。
+
+因此，伪逐周期方案要想真正体现“更容易实现”的优势，关键不在于 `N = 4` 本身，而在于：
+
+## **把每周期必须完成的工作，拆成“轻量采样累计”和“稀疏 full control update”两部分**
+
+推荐实现是：
+
+```text
+每个 ADC callback：
+  只做
+    - 读取 I_L
+    - acc += I_L
+    - cnt++
+
+每个 reload IRQ：
+  if (cnt < 4)
+      return
+  else
+      avg = acc / 4
+      PI(avg)
+      set_duty()
+      清 acc / cnt
+```
+
+这样之后，伪逐周期相比真逐周期真正“省”的地方是：
+
+1. **每个 PWM 周期不再都要完成一次 full control update**  
+   每周期只要求“采样成功并累计”，不要求每次都完成 PI + duty 更新。
+
+2. **重计算发生频率下降**  
+   `PI + set_duty()` 从“每 5us 一次”变成“每 20us 一次”（以 200kHz、4 周期更新为例）。
+
+3. **对 callback 到达抖动的敏感度下降**  
+   单个周期 callback 的轻微波动，只影响样本累计时刻，不再意味着该周期必须马上完成闭环更新。
+
+4. **可以继续复用当前多通道 PMT 路径**  
+   在不立即拆出单通道 fast path 的前提下，先得到一个可工作的快环版本。
+
+5. **当前通用 `set_duty()` 路径更容易先跑通**  
+   不必一开始就把 `set_duty()` 优化成极限 fast path。
+
+所以更准确的表达应该是：
+
+> **伪逐周期更容易实现，不是因为“最后一次计算的单次 ISR 尾部时间大很多”，而是因为“每个 PWM 周期都必须完成一次完整闭环更新”的硬约束被放松了。**
+
+原因：
+
+- 更新边界更整齐；
+- 便于后续切换为更严格的逐周期控制；
+- 对当前通用 `set_duty()` 路径更宽容；
+- 允许继续复用当前 PMT 多通道链路做监测与调试。
+
+#### 为什么采用简单均值滤波
+
+当前阶段选择“4 点简单均值”而不是更复杂滤波器，原因如下：
+
+- 计算开销小，适合放在快环路径里；
+- 对采样噪声有一定抑制作用；
+- 不会显著增加实现复杂度；
+- 便于后续根据波形和带宽需求替换成更合适的滤波策略。
+
+---
+
+### 5.4 PWM1 + ADC1（无线充电全桥发射）当前方案
+
+对于 `PWM1 + ADC1` 这条链路，当前设计收敛为：
+
+## **保留同步采样，暂不定义闭环控制算法**
+
+当前 ADC1 采样通道为：
+
+- `I_COIL`
+- `I_LF`
+
+当前仅将其视作：
+
+- 无线充电全桥发射部分的同步观测通道；
+- 后续控制策略研究、建模、波形分析的基础数据来源；
+- 暂不进入“每 N 周期更新 duty”或“逐周期 PI”一类闭环控制实现。
+
+这样做的原因：
+
+- 当前 `PWM1 + ADC1` 的控制目标和控制量尚未最终明确；
+- 采样链路已经具备，可以先保留观测能力；
+- 避免在算法目标不清晰时过早固化控制框架。
+
+---
+
+### 5.5 单通道 `I_L` 真逐周期方案讨论
+
+虽然当前最终决策是 `PWM0 + ADC0` 先采用“每 4 周期更新一次”的伪逐周期快环，但在当前平台上，仍然有必要明确“如果未来只采一个关键电感电流通道，真逐周期有没有可能”。
+
+#### 前提变化
+
+如果未来从当前 ADC0 四通道 PMT 分组：
+
+- `V_IN`
+- `I_IN`
+- `I_L`
+- `V_LINK`
+
+切换为只采一个关键通道：
+
+- `I_L`
+
+则单次转换耗时仍约为：
+
+```text
+t_single_channel ≈ 1.025us
+```
+
+即使再加上：
+
+- 中断响应
+- callback 分发
+- 软件读数与轻量处理
+
+也可粗略按：
+
+```text
+t_callback_arrival ≈ 1.1us ~ 1.4us
+```
+
+估算。
+
+#### 对 200kHz / 5us 的意义
+
+若只采 `I_L`，则在 `200kHz` 下从 callback 到当前周期结束大约还剩：
+
+```text
+5.0us - 1.2us ≈ 3.8us
+≈ 456 PWM/外设 ticks @120MHz
+≈ 1824 CPU cycles @480MHz
+```
+
+这个预算已经明显大于当前 4 通道 PMT 分组下的剩余窗口。
+
+#### 结论
+
+在 `CPU0 = 480MHz`、`PWM/ADC` 仍运行于 `120MHz / 40MHz` 外设域的前提下：
+
+- **4 通道 PMT 当前方案**：仍不适合 `200kHz` 真逐周期快环；
+- **单通道 `I_L` fast path**：存在实现真逐周期快环的现实可能。
+
+但它仍然有工程前提：
+
+1. PMT 必须真正只采 `I_L`，不能复用当前 4 通道组；
+2. ADC callback 中只允许保留最小必要控制链；
+3. `set_duty()` 路径最好进一步轻量化，必要时演化为 fast path 版本；
+4. `trigger_position_ratio` 需要重新按“采样质量 + 更新时间余量”联合优化；
+5. 需要通过 GPIO 打点或示波器验证“采样完成 → 控制计算 → shadow 生效”的完整时序。
+
+因此，单通道 `I_L` 真逐周期方案当前结论应写为：
+
+> **在当前平台上“有条件可行”，但需要单独拆出 fast path，不能直接把现有多通道 PMT 调试链路当作真逐周期控制路径。**
+
+---
+
+## 6. 当前阶段的模块落点建议
+
+在不改 `main.c` 主体行为的前提下，建议未来将电流快环落在以下层次：
+
+### 6.1 Platform
+
+- `app_adc`：ADC 采样与基础换算
+- `app_sampling_sync`：PWM→TRGM→ADC PMT 触发配置
+- `app_hrpwm`：占空比/频率/相位与 reload IRQ 封装
+
+这层只负责**采样能力和执行能力**，不负责控制算法。
+
+---
+
+### 6.2 Algorithm
+
+建议未来新增：
+
+- `algo_pi.h/.c`
+- `algo_limit.h/.c`
+
+只放纯算法：
+
+- PI 计算
+- anti-windup
+- 限幅
+- 轻量滤波（如果需要）
+
+---
+
+### 6.3 Control
+
+建议未来新增：
+
+- `ctrl_current_loop.h/.c`
+
+负责：
+
+- 保存 `i_ref`
+- 保存 `latest_i_l_raw` / 累积平均状态
+- 保存 `subcycle_div`
+- 在 reload IRQ 中决定是否执行本次 `4` 周期 PI 更新
+- 最终调用 `pwm_set_duty(...)`
+
+推荐接口示意：
 
 ```c
-/*
- * 位置式PID控制器
- * 优点：响应快，易于理解
- * 缺点：需要积分限幅
- */
-typedef struct {
-    float kp;              /* 比例系数 */
-    float ki;              /* 积分系数 */
-    float kd;              /* 微分系数 */
-    float integral;        /* 积分累积 */
-    float integral_max;    /* 积分限幅 */
-    float error_last;      /* 上次误差 */
-    float output;          /* 当前输出 */
-    float output_max;      /* 输出上限 */
-    float output_min;      /* 输出下限 */
-} pid_position_t;
+void ctrl_current_loop_init(void);
+void ctrl_current_loop_enable(bool en);
+void ctrl_current_loop_set_reference(float i_ref);
 
-float pid_position_calculate(pid_position_t *pid, float target, float measured)
-{
-    float error = target - measured;
-    
-    /* 积分累加 */
-    pid->integral += error * pid->ki;
-    
-    /* 积分限幅 */
-    if (pid->integral > pid->integral_max) {
-        pid->integral = pid->integral_max;
-    } else if (pid->integral < -pid->integral_max) {
-        pid->integral = -pid->integral_max;
-    }
-    
-    /* 微分项 */
-    float derivative = error - pid->error_last;
-    
-    /* PID输出 */
-    pid->output = pid->kp * error + pid->integral + pid->kd * derivative;
-    
-    /* 输出限幅 */
-    if (pid->output > pid->output_max) {
-        pid->output = pid->output_max;
-    } else if (pid->output < pid->output_min) {
-        pid->output = pid->output_min;
-    }
-    
-    pid->error_last = error;
-    
-    return pid->output;
-}
+void ctrl_current_loop_on_adc_sample(uint16_t i_l_raw);
+void ctrl_current_loop_on_pwm_reload(void);
 ```
 
-### 4.3 算法选择建议
+其中：
 
-| 算法 | 适用场景 | 优点 | 缺点 |
-|------|----------|------|------|
-| **增量式PID** | 电流环 | 无积分饱和，输出平滑 | 响应稍慢 |
-| **位置式PID** | 电压环 | 响应快，易于调参 | 需要积分限幅 |
-| **PI控制器** | 大多数场景 | 简单可靠 | 无微分项 |
-
-**推荐方案**：
-- 内环（电流环）：增量式PID或PI
-- 外环（电压环）：位置式PI
+- `on_adc_sample()`：每周期调用，收样本
+- `on_pwm_reload()`：每周期调用，但仅每 `4` 次真正执行控制更新
 
 ---
 
-## 5. 软件架构设计
+## 7. 当前结论与下一步建议
 
-### 5.1 分层架构
+### 7.1 当前严格结论
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                App/Control/Src/ctrl_power_stage.c                 │
-│  控制环路业务逻辑：PID参数、控制策略、故障处理                     │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    Interface/intf_control.h                       │
-│  控制环路接口：init, start, stop, set_target                     │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    Driver/hpm_impl/drv_control.c                 │
-│  硬件配置：TRGM路由、ADC触发、中断配置                            │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-        ┌─────────────────────┼─────────────────────┐
-        ↓                     ↓                     ↓
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│  drv_hrpwm.c  │    │   drv_adc.c   │    │ drv_trgm.c    │
-│  PWM驱动      │    │   ADC驱动     │    │ TRGM驱动      │
-└───────────────┘    └───────────────┘    └───────────────┘
-```
+基于当前工程的真实配置：
 
-### 5.2 接口定义
-
-```c
-/* intf_control.h */
-
-#ifndef INTF_CONTROL_H
-#define INTF_CONTROL_H
-
-#include <stdint.h>
-
-/* 控制环路配置 */
-typedef struct {
-    uint32_t pwm_frequency_hz;      /* PWM频率 */
-    float current_kp;               /* 电流环Kp */
-    float current_ki;               /* 电流环Ki */
-    float current_kd;               /* 电流环Kd */
-    float voltage_kp;               /* 电压环Kp */
-    float voltage_ki;               /* 电压环Ki */
-    float current_max;              /* 最大电流 (mA) */
-    float voltage_max;              /* 最大电压 (mV) */
-    float duty_max;                 /* 最大占空比 */
-    float duty_min;                 /* 最小占空比 */
-} intf_control_cfg_t;
-
-/* 控制环路状态 */
-typedef struct {
-    float target_current;           /* 目标电流 (mA) */
-    float target_voltage;           /* 目标电压 (mV) */
-    float measured_current;         /* 测量电流 (mA) */
-    float measured_voltage;         /* 测量电压 (mV) */
-    float duty_cycle;               /* 当前占空比 */
-    uint32_t cycle_count;           /* 控制周期计数 */
-} intf_control_status_t;
-
-/* 控制环路回调 */
-typedef void (*intf_control_callback_t)(const intf_control_status_t *status);
-
-/* API */
-int intf_control_init(const intf_control_cfg_t *cfg);
-int intf_control_start(void);
-int intf_control_stop(void);
-int intf_control_set_target_current(float current_ma);
-int intf_control_set_target_voltage(float voltage_mv);
-int intf_control_get_status(intf_control_status_t *status);
-int intf_control_register_callback(intf_control_callback_t callback);
-
-#endif /* INTF_CONTROL_H */
-```
+1. **当前 4 通道 ADC0 PMT 分组不适合直接支撑 200kHz 真逐周期电流环**；
+2. **对于 PWM0 + ADC0（Buck-Boost），当前明确采用“每周期采样、每 4 周期均值 + PI 更新 duty”的伪逐周期方案**；
+3. **对于 PWM1 + ADC1（无线充全桥发射），当前仅保留同步采样，暂不定义闭环控制算法**；
+4. PWM0 电流快环第一版建议把更新点放在 **PWM reload IRQ**，而不是 ADC callback；
+5. 如果后续要冲击真逐周期，需要进一步拆出 **单通道 fast path**，只采 `I_L`。
 
 ---
 
-## 6. 关键设计决策
+### 7.2 当前待确认事项
 
-### 6.1 触发方式选择
-
-| 方案 | 优点 | 缺点 | 推荐度 |
-|------|------|------|--------|
-| **方案A：PWM中断触发ADC** | 实现简单 | 延迟大，抖动大 | ★★☆ |
-| **方案B：硬件触发ADC** | 延迟小，确定性好 | 需要TRGM配置 | ★★★ |
-| **方案C：DMA传输ADC** | CPU占用最低 | 实现复杂 | ★★☆ |
-
-**推荐方案B**：使用TRGM将PWM信号路由到ADC触发输入。
-
-### 6.2 ADC采样模式
-
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| **序列模式** | 按顺序采样多个通道 | 低速采样 |
-| **抢占模式** | 高优先级触发打断低优先级 | 电流环（推荐） |
-
-**推荐抢占模式**：允许紧急触发打断常规采样。
-
-### 6.3 控制周期选择
-
-| 方案 | 控制周期 | 优点 | 缺点 |
-|------|----------|------|------|
-| **每个PWM周期** | 5us | 响应最快 | 计算压力大 |
-| **每2个PWM周期** | 10us | 平衡方案 | 响应稍慢 |
-| **每4个PWM周期** | 20us | 计算宽松 | 响应慢 |
-
-**推荐每个PWM周期**：电流环需要快速响应。
+- [ ] `trigger_position_ratio = 0.5f` 是否是最终最优采样点，需要结合示波器验证
+- [ ] `200kHz` 下每 4 周期更新一次时，PI 参数整定策略
+- [ ] 4 点简单均值是否足够，还是需要更适合的快环滤波策略
+- [ ] 当前 `set_duty()` 路径是否需要后续补一个 fast version
+- [ ] 是否需要将 PWM0 快环与现有多通道监测链路分离为独立 fast path / slow path
+- [ ] PWM1 + ADC1 后续应采用哪种控制目标（功率、线圈电流、谐振状态或其它）
+- [ ] 若未来改成单通道 `I_L` fast path，是否推进真逐周期控制实现
 
 ---
 
-## 7. 待讨论问题
+## 8. 参考依据
 
-### 7.1 硬件相关
-
-- [x] ADC引脚分配已确认（PB08/PB10/PB11/PB12/PB13/PB14）
-- [ ] ADC通道号需要根据原理图最终确认
-- [ ] 检流电阻阻值和INA240A2增益需要确认
-- [ ] 电流互感器变比和运放增益需要确认
-- [ ] 电压分压电阻比例需要确认
-- [ ] ADC参考电压选择（内部/外部）？
-- [ ] 是否需要ADC校准？
-
-### 7.2 软件相关
-
-- [ ] 两个PWM的ADC触发策略确认（独立触发/交替触发/主从触发）
-- [ ] PID参数如何整定？
-- [ ] 是否需要前馈控制？
-- [ ] 故障保护策略（过流、过压、欠压）？
-- [ ] 软启动策略？
-- [ ] Buck-Boost和LCC是否需要独立控制？
-
-### 7.3 测试相关
-
-- [ ] 如何验证控制环路稳定性？
-- [ ] 阶跃响应测试方法？
-- [ ] 负载扰动测试方法？
-
----
-
-## 8. 参考资料
-
-1. **HPM5361 TRM** - PWM、ADC、TRGM寄存器说明
-2. **hpm_sdk/samples/motor_ctrl/bldc_foc/** - 电机控制示例
-3. **hpm_sdk/drivers/inc/hpm_adc16_drv.h** - ADC驱动API
-4. **hpm_sdk/drivers/inc/hpm_trgm_drv.h** - TRGM驱动API
+1. `App/Platform/Src/app_hrpwm.c`：当前 PWM 频率、对齐模式、pair 配置
+2. `App/Platform/Src/app_sampling_sync.c`：当前 PMT 分组、TRGM 触发链、默认采样点位置
+3. `App/Platform/Src/app_adc.c`：当前 ADC 默认配置
+4. `Driver/hpm_impl/drv_adc.c`：PMT callback 回流机制
+5. `Driver/hpm_impl/drv_hrpwm.c`：reload IRQ 与 compare shadow 更新机制
+6. `doc/adc_driver_design.md`：ADC 时钟与转换耗时说明
+7. `doc/hrpwm_driver_design.md`：PWM 时钟与周期参数说明
 
 ---
 
@@ -564,5 +711,6 @@ int intf_control_register_callback(intf_control_callback_t callback);
 
 | 日期 | 版本 | 说明 |
 |------|------|------|
-| 2026-05-31 | v0.1 | 初始设计文档 |
-| 2026-05-31 | v0.2 | 添加ADC采样通道分配表格，明确硬件拓扑和采样电路 |
+| 2026-05-31 | v0.1 | 初始控制环讨论文档 |
+| 2026-06-04 | v0.2 | 根据当前工程实际重写，删除猜测性接口，补充 PMT/IRQ/时间预算分析 |
+| 2026-06-04 | v0.3 | 修正 CPU 480MHz / AHB 120MHz 表述，并补充单通道 `I_L` 真逐周期可行性讨论 |
