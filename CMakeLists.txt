@@ -60,7 +60,16 @@ sdk_app_src(Driver/WS2812/WS2812.c)
 # Interface default stubs
 sdk_app_src(Interface/intf_default.c)
 
-# App logic
+# App logic — Algorithm library
+sdk_app_src(App/Algorithm/Src/algo_pid.c)
+sdk_app_src(App/Algorithm/Src/algo_filter.c)
+sdk_app_src(App/Algorithm/Src/algo_rms.c)
+sdk_app_src(App/Algorithm/Src/algo_ramp.c)
+sdk_app_src(App/Algorithm/Src/algo_ffd.c)
+sdk_app_src(App/Algorithm/Src/algo_hyst.c)
+sdk_app_src(App/Algorithm/Src/algo_pll.c)
+
+# App logic — Platform
 sdk_app_src(App/Platform/Src/app_gpio.c)
 sdk_app_src(App/Platform/Src/app_buzzer.c)
 sdk_app_src(App/Platform/Src/app_ws2812.c)

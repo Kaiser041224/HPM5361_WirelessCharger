@@ -43,10 +43,21 @@ HPM_BUILD_TYPE ?= flash_xip
 GENERATOR ?= Ninja
 LAST_BUILD_LOG := $(BUILD_DIR)/last_build.log
 
-# Optimization level override (empty = use CMAKE_BUILD_TYPE default)
-# Usage: make build OPT_LEVEL=-O2
-# Valid values: -O0, -O1, -O2, -O3, -Os, -Ofast
-OPT_LEVEL ?= -O0
+# Optimization level (separate Debug/Release)
+# Usage: make build OPT_LEVEL_DBG=-Og OPT_LEVEL_REL=-Ofast
+# Debug:  -O0 (default, best debugging experience)
+# Release: -O3 (default, maximum speed)
+OPT_LEVEL_DBG ?= -O0
+OPT_LEVEL_REL ?= -O3
+
+ifneq ($(origin OPT_LEVEL), undefined)
+ifneq ($(origin OPT_LEVEL_DBG), command line)
+OPT_LEVEL_DBG := $(OPT_LEVEL)
+endif
+ifneq ($(origin OPT_LEVEL_REL), command line)
+OPT_LEVEL_REL := $(OPT_LEVEL)
+endif
+endif
 
 # ============================================================================
 # Flash Configuration
@@ -82,11 +93,7 @@ endif
 EXTRA_C_FLAGS := $(DEBUG_PREFIX_MAP)
 
 # Optimization level flags for Debug/Release builds
-ifeq ($(OPT_LEVEL),)
-  OPT_CMAKE_ARGS :=
-else
-  OPT_CMAKE_ARGS := -DCMAKE_C_FLAGS_DEBUG="$(OPT_LEVEL) -g" -DCMAKE_C_FLAGS_RELEASE="$(OPT_LEVEL) -DNDEBUG"
-endif
+OPT_CMAKE_ARGS := -DCMAKE_C_FLAGS_DEBUG="$(OPT_LEVEL_DBG) -g" -DCMAKE_C_FLAGS_RELEASE="$(OPT_LEVEL_REL) -DNDEBUG"
 
 CMAKE_ARGS := \
 	-G$(GENERATOR) \
@@ -245,7 +252,8 @@ help:
 	@echo "  BOARD=<name>             Board name (default: HPM5361_WirelessCharger_board)"
 	@echo "  CMAKE_BUILD_TYPE=<type>  Debug or Release (default: Debug)"
 	@echo "  HPM_BUILD_TYPE=<type>    flash_xip, flash_sdram_xip, etc."
-	@echo "  OPT_LEVEL=<level>        Override optimization: -O0, -O1, -O2, -O3, -Os"
+	@echo "  OPT_LEVEL_DBG=<level>    Debug optimization: -O0 (default), -Og, -O1..."
+	@echo "  OPT_LEVEL_REL=<level>    Release optimization: -O3 (default), -O2, -Os, -Ofast"
 	@echo "  FLASH_TOOL=<tool>        openocd or jlink (default: openocd)"
 	@echo "  OPENOCD_SPEED=<kHz>      OpenOCD adapter speed (default: 1000)"
 	@echo ""
@@ -253,7 +261,7 @@ help:
 	@echo "  make build"
 	@echo "  make BOARD=user_board build"
 	@echo "  make CMAKE_BUILD_TYPE=Release artifacts"
-	@echo "  make OPT_LEVEL=-O2 build"
+	@echo "  make OPT_LEVEL_DBG=-Og build"
 	@echo "  make FLASH_TOOL=jlink flash"
 
 # ============================================================================
