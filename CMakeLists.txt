@@ -78,6 +78,10 @@ sdk_app_src(App/Platform/Src/app_hrpwm.c)
 sdk_app_src(App/Platform/Src/app_adc.c)
 sdk_app_src(App/Platform/Src/app_sampling_sync.c)
 sdk_app_src(App/Platform/Src/app_can.c)
+sdk_app_src(App/Debug/Src/app_debug.c)
+sdk_app_src(App/Debug/Src/app_debug_adc.c)
+sdk_app_src(App/Debug/Src/app_debug_can.c)
+sdk_app_src(App/Debug/Src/app_debug_hrpwm.c)
 sdk_app_src(App/Debug/Src/app_debug_rtt.c)
 
 # Main entry

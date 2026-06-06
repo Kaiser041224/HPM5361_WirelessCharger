@@ -4,7 +4,7 @@
 
 #include "app_buzzer.h"
 #include "app_can.h"
-#include "app_debug_rtt.h"
+#include "app_debug.h"
 #include "app_gpio.h"
 #include "app_ws2812.h"
 
@@ -18,11 +18,10 @@ int main(void) {
     app_debug_init();
     app_can_init();
 
-    app_debug_write("\r\n[RTT] HPM5361 WirelessCharger started\r\n");
+    app_debug_printf("\r\n[MAIN] HPM5361 WirelessCharger started\r\n");
 
     while (1) {
-        app_debug_adc_pmt_run_tests();
-        app_debug_can_run_tests();
+        app_debug_run_once();
         intf_clock_delay_ms(1000);
     }
 
