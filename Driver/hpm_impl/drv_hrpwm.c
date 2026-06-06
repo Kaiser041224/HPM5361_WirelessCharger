@@ -6,6 +6,7 @@
  */
 
 #include "intf_hrpwm.h"
+#include "drv_hrpwm.h"
 
 #include "board.h"
 #include "hpm_clock_drv.h"

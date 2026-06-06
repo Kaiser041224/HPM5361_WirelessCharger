@@ -7,6 +7,7 @@
 #include "intf_i2c.h"
 #include "intf_gpio.h"
 #include "intf_ws2812.h"
+#include "intf_can.h"
 
 #include <stddef.h>
 
@@ -551,4 +552,126 @@ bool intf_ws2812_is_busy(void)
 void intf_ws2812_deinit(void)
 {
     if (ws2812_ops && ws2812_ops->deinit) ws2812_ops->deinit();
+}
+
+/* ============================================================================
+ * CAN Interface
+ * ============================================================================ */
+
+#define CAN_INSTANCE_COUNT (4U)
+
+static const intf_can_t *can_ops[CAN_INSTANCE_COUNT] = {NULL};
+
+int intf_can_register(const intf_can_t *ops)
+{
+    if (ops == NULL || ops->instance_id >= CAN_INSTANCE_COUNT) return -1;
+    can_ops[ops->instance_id] = ops;
+    return 0;
+}
+
+int intf_can_init(intf_can_inst_t inst, const intf_can_cfg_t *cfg)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->init) return can_ops[inst]->init(cfg);
+    return -1;
+}
+
+void intf_can_deinit(intf_can_inst_t inst)
+{
+    if (inst < CAN_INSTANCE_COUNT && can_ops[inst] && can_ops[inst]->deinit)
+        can_ops[inst]->deinit();
+}
+
+int intf_can_send(intf_can_inst_t inst, const intf_can_frame_t *frame,
+                   uint32_t timeout_ms)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->send) return can_ops[inst]->send(frame, timeout_ms);
+    return -1;
+}
+
+int intf_can_send_nonblocking(intf_can_inst_t inst,
+                               const intf_can_frame_t *frame,
+                               uint8_t *fifo_idx)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->send_nonblocking) return can_ops[inst]->send_nonblocking(frame, fifo_idx);
+    return -1;
+}
+
+int intf_can_send_add_request(intf_can_inst_t inst, uint8_t fifo_idx)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->send_add_request) return can_ops[inst]->send_add_request(fifo_idx);
+    return -1;
+}
+
+int intf_can_receive(intf_can_inst_t inst, intf_can_frame_t *frame,
+                      uint32_t timeout_ms)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->receive) return can_ops[inst]->receive(frame, timeout_ms);
+    return -1;
+}
+
+int intf_can_receive_nonblocking(intf_can_inst_t inst,
+                                  intf_can_frame_t *frame)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->receive_nonblocking) return can_ops[inst]->receive_nonblocking(frame);
+    return -1;
+}
+
+int intf_can_config_filter(intf_can_inst_t inst, uint32_t index,
+                            const intf_can_filter_elem_t *elem)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->config_filter) return can_ops[inst]->config_filter(index, elem);
+    return -1;
+}
+
+int intf_can_enable_interrupt(intf_can_inst_t inst, uint32_t event_mask)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->enable_interrupt) return can_ops[inst]->enable_interrupt(event_mask);
+    return -1;
+}
+
+int intf_can_disable_interrupt(intf_can_inst_t inst, uint32_t event_mask)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->disable_interrupt) return can_ops[inst]->disable_interrupt(event_mask);
+    return -1;
+}
+
+int intf_can_config_irq_callback(intf_can_inst_t inst,
+                                  intf_can_irq_callback_t cb,
+                                  void *user_data)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->config_irq_callback) return can_ops[inst]->config_irq_callback(cb, user_data);
+    return -1;
+}
+
+int intf_can_get_status(intf_can_inst_t inst, intf_can_status_t *status)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->get_status) return can_ops[inst]->get_status(status);
+    return -1;
+}
+
+int intf_can_read_tx_event(intf_can_inst_t inst, intf_can_tx_event_t *tx_evt)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->read_tx_event) return can_ops[inst]->read_tx_event(tx_evt);
+    return -1;
+}
+
+int intf_can_get_timestamp(intf_can_inst_t inst,
+                            const intf_can_tx_event_t *tx_evt,
+                            intf_can_timestamp_t *ts)
+{
+    if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
+    if (can_ops[inst]->get_timestamp) return can_ops[inst]->get_timestamp(tx_evt, ts);
+    return -1;
 }

@@ -46,6 +46,7 @@ HPM5361_WirelessCharger/
 │   ├── intf_spi.h              # SPI 接口
 │   ├── intf_i2c.h              # I2C 接口
 │   ├── intf_ws2812.h           # WS2812 接口
+│   ├── intf_can.h               # CAN 接口 (MCAN/CAN-FD)
 │   └── intf_default.c          # 注册分发实现
 ├── Driver/
 │   └── hpm_impl/               # HPM SDK 适配
@@ -53,6 +54,9 @@ HPM5361_WirelessCharger/
 │       ├── drv_gpwm.c          # GPWM 驱动 (映射到 HPM_GPTMR0)
 │       ├── drv_gpio.c          # GPIO 驱动
 │       ├── drv_clock.c         # Clock 驱动
+│       ├── drv_hrpwm.h          # HRPWM 驱动宏
+│       ├── drv_mcan.c           # MCAN 驱动 (CAN-FD)
+│       ├── drv_mcan.h           # MCAN 驱动声明
 │       ├── drv_adc.c           # ADC 驱动
 │       ├── drv_uart.c          # UART 驱动
 │       ├── drv_spi.c           # SPI 驱动
@@ -126,6 +130,7 @@ make flash
 | SPI | `intf_spi.h` | ❌ TODO | SPI 通信 |
 | I2C | `intf_i2c.h` | ❌ TODO | I2C 通信 |
 | WS2812 | `intf_ws2812.h` | ✅ 完成 | WS2812 LED 驱动 |
+| CAN | `intf_can.h` | ✅ 完成 | MCAN 驱动，支持 CAN 2.0 / CAN FD，中断 + 非阻塞收发 |
 
 ## HRPWM 驱动说明
 
@@ -150,6 +155,35 @@ make flash
 详细设计文档请参考：
 - `doc/hrpwm_driver_design.md`
 - `doc/adc_driver_design.md`
+
+## CAN 驱动说明
+
+- **接口**：`intf_can.h` — C17 匿名结构体，14 函数指针覆盖 MCAN 全功能
+- **驱动**：`drv_mcan.c` — 薄映射层，最大化复用 SDK（`mcan_get_default_config` / `mcan_init` / `mcan_parse_protocol_status`）
+- **App 封装**：`app_can.c/h` — 中断驱动 + Ring Buffer + 非阻塞收发
+- **引脚**：PA00→MCAN0_TXD, PA01→MCAN0_RXD
+- **时钟**：PLL1_CLK0 ÷ 10 = 80MHz，由 `intf_clock_init()` 统一配置
+- **功能**：经典 CAN 2.0 / CAN FD，ID+Mask 过滤器，总线状态查询，内部回环测试
+
+### CAN 使用示例
+
+```c
+#include "app_can.h"
+
+void on_msg(const app_can_msg_t *msg) { /* ISR 上下文 */ }
+
+app_can_init();
+app_can_set_rx_callback(on_msg);
+app_can_add_filter(0x114, 0x7FF);       // 只接收 ID=0x114
+app_can_send(0x114, data, 8);           // 非阻塞发送
+app_can_msg_t msg;
+if (app_can_receive(&msg) == 0) { ... } // 轮询接收
+```
+
+### CAN 调试验证
+
+- `app_debug_can_loopback_test()` — 内部回环验证 MCAN 控制器
+- `app_debug_can_run_tests()` — 周期性发送 + RTT 打印接收
 
 ## 添加新外设接口
 

@@ -50,4 +50,8 @@ void app_debug_adc_run_tests(void);
 /* ADC PMT 联动测试 */
 void app_debug_adc_pmt_run_tests(void);
 
+/* CAN 收发测试 */
+void app_debug_can_run_tests(void);
+void app_debug_can_loopback_test(void);
+
 #endif /* APP_DEBUG_RTT_H */

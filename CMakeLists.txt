@@ -54,6 +54,7 @@ sdk_app_src(Driver/hpm_impl/drv_hrpwm.c)
 sdk_app_src(Driver/hpm_impl/drv_gpwm.c)
 sdk_app_src(Driver/hpm_impl/drv_adc.c)
 sdk_app_src(Driver/hpm_impl/drv_trgm.c)
+sdk_app_src(Driver/hpm_impl/drv_mcan.c)
 sdk_app_src(Driver/hpm_impl/drv_ws2812.c)
 sdk_app_src(Driver/WS2812/WS2812.c)
 
@@ -76,6 +77,7 @@ sdk_app_src(App/Platform/Src/app_ws2812.c)
 sdk_app_src(App/Platform/Src/app_hrpwm.c)
 sdk_app_src(App/Platform/Src/app_adc.c)
 sdk_app_src(App/Platform/Src/app_sampling_sync.c)
+sdk_app_src(App/Platform/Src/app_can.c)
 sdk_app_src(App/Debug/Src/app_debug_rtt.c)
 
 # Main entry
