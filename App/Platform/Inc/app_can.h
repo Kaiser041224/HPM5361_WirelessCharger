@@ -47,6 +47,7 @@ typedef struct {
 } app_can_stats_t;
 
 int  app_can_init(void);
+void app_can_register_driver(void);
 void app_can_deinit(void);
 void app_can_set_rx_callback(app_can_rx_callback_t cb);
 void app_can_poll(void);

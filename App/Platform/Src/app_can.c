@@ -1,9 +1,25 @@
 #include "app_can.h"
 
-#include "drv_mcan.h"
+#include "intf_can.h"
 
 #include <stddef.h>
 #include <string.h>
+
+/*
+ * 临界区保护：直接操作 RISC-V MSTATUS.MIE，避免引入驱动层依赖。
+ * TODO: 后续可提升为 Interface 层通用抽象。
+ */
+static inline uint32_t can_critical_enter(void)
+{
+    uint32_t mie;
+    __asm__ volatile("csrrc %0, mstatus, %1" : "=r"(mie) : "i"(0x8));
+    return mie;
+}
+
+static inline void can_critical_exit(uint32_t state)
+{
+    __asm__ volatile("csrw mstatus, %0" :: "r"(state));
+}
 
 #define APP_CAN_INST      (0U)
 #define APP_CAN_BAUDRATE  (1000000U)
@@ -37,9 +53,14 @@ static void app_can_driver_register_once(void)
     if (registered) {
         return;
     }
-
-    drv_can_register();
     registered = true;
+}
+
+extern void drv_can_register(void);
+void app_can_register_driver(void)
+{
+    drv_can_register();
+    app_can_driver_register_once();
 }
 
 static bool app_can_is_std_id_valid(uint32_t id)
@@ -69,22 +90,22 @@ static void app_can_refresh_status_snapshot(void)
     intf_can_status_t status;
 
     if (intf_can_get_status(APP_CAN_INST, &status) == 0) {
-        uint32_t irq_state = drv_can_enter_critical();
+        uint32_t irq_state = can_critical_enter();
         s_stats.last_status = status;
-        drv_can_exit_critical(irq_state);
+        can_critical_exit(irq_state);
     }
 }
 
 static void app_can_reset_state(void)
 {
-    uint32_t irq_state = drv_can_enter_critical();
+    uint32_t irq_state = can_critical_enter();
 
     memset(&s_rx_ring, 0, sizeof(s_rx_ring));
     memset(&s_stats, 0, sizeof(s_stats));
     s_rx_callback = NULL;
     s_filter_index = 0U;
 
-    drv_can_exit_critical(irq_state);
+    can_critical_exit(irq_state);
 }
 
 static void app_can_note_event_flags(uint32_t event_flags)
@@ -154,14 +175,14 @@ static int app_can_send_internal(uint32_t id, bool is_ext_id,
 
     ret = intf_can_send_nonblocking(APP_CAN_INST, &frame, NULL);
 
-    irq_state = drv_can_enter_critical();
+    irq_state = can_critical_enter();
     s_stats.last_tx_ret = ret;
     if (ret == 0) {
         s_stats.tx_enqueue_ok_count++;
     } else {
         s_stats.tx_fail_count++;
     }
-    drv_can_exit_critical(irq_state);
+    can_critical_exit(irq_state);
 
     if (ret != 0) {
         app_can_refresh_status_snapshot();
@@ -308,9 +329,9 @@ void app_can_deinit(void)
 
 void app_can_set_rx_callback(app_can_rx_callback_t cb)
 {
-    uint32_t irq_state = drv_can_enter_critical();
+    uint32_t irq_state = can_critical_enter();
     s_rx_callback = cb;
-    drv_can_exit_critical(irq_state);
+    can_critical_exit(irq_state);
 }
 
 void app_can_poll(void)
@@ -318,15 +339,15 @@ void app_can_poll(void)
     for (;;) {
         app_can_msg_t msg;
         app_can_rx_callback_t cb;
-        uint32_t irq_state = drv_can_enter_critical();
+        uint32_t irq_state = can_critical_enter();
 
         cb = s_rx_callback;
         if (cb == NULL || !app_can_ring_pop_locked(&msg)) {
-            drv_can_exit_critical(irq_state);
+            can_critical_exit(irq_state);
             return;
         }
 
-        drv_can_exit_critical(irq_state);
+        can_critical_exit(irq_state);
         cb(&msg);
     }
 }
@@ -355,9 +376,9 @@ int app_can_receive(app_can_msg_t *msg)
         return -1;
     }
 
-    irq_state = drv_can_enter_critical();
+    irq_state = can_critical_enter();
     popped = app_can_ring_pop_locked(msg);
-    drv_can_exit_critical(irq_state);
+    can_critical_exit(irq_state);
     return popped ? 0 : -1;
 }
 
@@ -389,9 +410,9 @@ int app_can_get_status(intf_can_status_t *status)
     }
 
     {
-        uint32_t irq_state = drv_can_enter_critical();
+        uint32_t irq_state = can_critical_enter();
         s_stats.last_status = *status;
-        drv_can_exit_critical(irq_state);
+        can_critical_exit(irq_state);
     }
     return 0;
 }
@@ -404,20 +425,20 @@ int app_can_get_stats(app_can_stats_t *stats)
         return -1;
     }
 
-    irq_state = drv_can_enter_critical();
+    irq_state = can_critical_enter();
     *stats = s_stats;
     stats->rx_pending_count = s_rx_ring.count;
-    drv_can_exit_critical(irq_state);
+    can_critical_exit(irq_state);
     return 0;
 }
 
 void app_can_clear_stats(void)
 {
-    uint32_t irq_state = drv_can_enter_critical();
+    uint32_t irq_state = can_critical_enter();
 
     memset(&s_stats, 0, sizeof(s_stats));
 
-    drv_can_exit_critical(irq_state);
+    can_critical_exit(irq_state);
     if (s_initialized) {
         app_can_refresh_status_snapshot();
     }

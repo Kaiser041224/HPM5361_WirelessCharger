@@ -63,12 +63,12 @@ HPM5361_WirelessCharger/
 │       ├── drv_i2c.c           # I2C 驱动
 │       └── drv_ws2812.c        # WS2812 驱动
 ├── App/                        # 应用层
-│   ├── main.c                  # 入口 (当前保留为直接初始化)
-│   ├── Application/            # 应用编排 / 业务入口 / 运行时调度
-│   ├── Control/                # 控制策略 / 闭环控制 / 保护逻辑
-│   ├── Algorithm/              # 纯算法库（PID、滤波、观测器等）
-│   ├── Platform/               # 应用级平台封装（ADC/PWM/GPIO/同步采样）
-│   └── Debug/                  # 调试、测试、RTT 输出
+│   ├── main.c                  # 系统启动桥接
+│   ├── Application/            # 应用编排 (app_entry/app_control/app_comm)
+│   ├── Control/                # 面向对象控制器 (ctrl_buckboost/ctrl_lcc/ctrl_fault)
+│   ├── Algorithm/              # 纯算法库 (PID/PLL/Ramp/RMS/FFD/Filter)
+│   ├── Platform/               # 应用级平台封装 (app_hrpwm/app_adc/app_sampling_sync/app_can)
+│   └── Debug/                  # 调试测试 (app_debug_rtt/app_debug_adc/app_debug_can/app_debug_hrpwm)
 ├── doc/                        # 文档
 │   ├── hrpwm_driver_design.md  # HRPWM 驱动设计文档
 │   └── adc_driver_design.md    # ADC 驱动设计文档

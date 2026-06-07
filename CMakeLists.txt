@@ -84,6 +84,16 @@ sdk_app_src(App/Debug/Src/app_debug_can.c)
 sdk_app_src(App/Debug/Src/app_debug_hrpwm.c)
 sdk_app_src(App/Debug/Src/app_debug_rtt.c)
 
+# App logic — Application (skeleton)
+sdk_app_src(App/Application/Src/app_entry.c)
+sdk_app_src(App/Application/Src/app_control.c)
+sdk_app_src(App/Application/Src/app_comm.c)
+
+# App logic — Control (skeleton)
+sdk_app_src(App/Control/Src/ctrl_buckboost.c)
+sdk_app_src(App/Control/Src/ctrl_lcc.c)
+sdk_app_src(App/Control/Src/ctrl_fault.c)
+
 # Main entry
 sdk_app_src(App/main.c)
 

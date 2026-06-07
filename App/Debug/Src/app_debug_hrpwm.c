@@ -298,8 +298,8 @@ void app_debug_hrpwm_run_tests(void)
     app_debug_printf("\r\n[HRPWM] === HRPWM Validation Tests ===\r\n");
     app_debug_dump_hrpwm_cmp();
 
-    for (pwm_pair_t pair = PWM_PAIR_0; pair < PWM_PAIR_COUNT; pair++) {
-        pwm_set_duty(pair, 0.5f);
+    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+        hrpwm_set_duty(pair, 0.5f);
     }
 
     app_debug_printf("[HRPWM] enabling PWM0 & PWM1 reload IRQ...\r\n");
@@ -310,50 +310,50 @@ void app_debug_hrpwm_run_tests(void)
     intf_clock_delay_ms(1000);
 
     app_debug_printf("\r\n[HRPWM] --- Test 1: PWM0 static initial phase = 180 deg ---\r\n");
-    pwm_stop(PWM_PAIR_0);
-    pwm_stop(PWM_PAIR_1);
+    hrpwm_stop(HRPWM_PAIR_0);
+    hrpwm_stop(HRPWM_PAIR_1);
     intf_clock_delay_ms(20);
-    pwm_set_phase(0, 0, 1, 180.0f);
-    pwm_start(PWM_PAIR_0);
-    pwm_start(PWM_PAIR_1);
+    hrpwm_set_phase(0, 0, 1, 180.0f);
+    hrpwm_start(HRPWM_PAIR_0);
+    hrpwm_start(HRPWM_PAIR_1);
     app_debug_dump_hrpwm_cmp();
     intf_clock_delay_ms(4000);
 
     app_debug_printf("\r\n[HRPWM] --- Test 2: PWM0 runtime phase sweep 0 -> 89 deg ---\r\n");
-    pwm_set_phase(0, 0, 1, 0.0f);
+    hrpwm_set_phase(0, 0, 1, 0.0f);
     intf_clock_delay_ms(100);
     app_debug_pwm_test_phase_sweep(0, 0, 1, 0.0f, 89.0f, 1.0f, 80);
-    pwm_set_phase(0, 0, 1, 0.0f);
+    hrpwm_set_phase(0, 0, 1, 0.0f);
     intf_clock_delay_ms(200);
 
     app_debug_printf("\r\n[HRPWM] --- Test 3: PWM0 frequency sweep with phase replay ---\r\n");
-    pwm_set_phase(0, 0, 1, 60.0f);
+    hrpwm_set_phase(0, 0, 1, 60.0f);
     app_debug_pwm_test_frequency_sweep(0, 160000, 240000, 20000, 500);
-    pwm_set_frequency(PWM_INST_0, 200000);
-    pwm_set_phase(0, 0, 1, 0.0f);
+    hrpwm_set_frequency(HRPWM_INST_0, 200000);
+    hrpwm_set_phase(0, 0, 1, 0.0f);
     intf_clock_delay_ms(200);
 
     app_debug_printf("\r\n[HRPWM] --- Test 4: PWM1 static initial phase = 150 deg ---\r\n");
-    pwm_stop(PWM_PAIR_2);
-    pwm_stop(PWM_PAIR_3);
+    hrpwm_stop(HRPWM_PAIR_2);
+    hrpwm_stop(HRPWM_PAIR_3);
     intf_clock_delay_ms(20);
-    pwm_set_phase(1, 0, 1, 150.0f);
-    pwm_start(PWM_PAIR_2);
-    pwm_start(PWM_PAIR_3);
+    hrpwm_set_phase(1, 0, 1, 150.0f);
+    hrpwm_start(HRPWM_PAIR_2);
+    hrpwm_start(HRPWM_PAIR_3);
     app_debug_dump_hrpwm_cmp();
     intf_clock_delay_ms(2000);
 
     app_debug_printf("\r\n[HRPWM] --- Test 5: PWM1 runtime phase sweep 0 -> 89 deg ---\r\n");
-    pwm_set_phase(1, 0, 1, 0.0f);
+    hrpwm_set_phase(1, 0, 1, 0.0f);
     intf_clock_delay_ms(100);
     app_debug_pwm_test_phase_sweep(1, 0, 1, 0.0f, 89.0f, 1.0f, 80);
-    pwm_set_phase(1, 0, 1, 0.0f);
+    hrpwm_set_phase(1, 0, 1, 0.0f);
     intf_clock_delay_ms(200);
 
     app_debug_printf("\r\n[HRPWM] --- Test 6: PWM0 duty resolution around 50% ---\r\n");
     app_debug_pwm_test_duty_resolution(0, 0, 0.45f, 0.55f, 0.0005f, 80);
-    pwm_set_duty(PWM_PAIR_0, 0.5f);
-    pwm_set_phase(0, 0, 1, 0.0f);
+    hrpwm_set_duty(HRPWM_PAIR_0, 0.5f);
+    hrpwm_set_phase(0, 0, 1, 0.0f);
 
     app_debug_printf("\r\n[HRPWM] === HRPWM Validation Tests Completed ===\r\n");
 }

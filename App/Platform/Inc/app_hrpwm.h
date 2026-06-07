@@ -1,5 +1,5 @@
 /*
- * HRPWM Example API
+ * HRPWM Platform API
  *
  * Copyright (c) 2026 HPMicro
  * SPDX-License-Identifier: BSD-3-Clause
@@ -11,37 +11,37 @@
 #include <stdint.h>
 
 typedef enum {
-    PWM_PAIR_0 = 0,
-    PWM_PAIR_1,
-    PWM_PAIR_2,
-    PWM_PAIR_3,
-    PWM_PAIR_COUNT,
-} pwm_pair_t;
+    HRPWM_PAIR_0 = 0,
+    HRPWM_PAIR_1,
+    HRPWM_PAIR_2,
+    HRPWM_PAIR_3,
+    HRPWM_PAIR_COUNT,
+} hrpwm_pair_t;
 
 typedef enum {
-    PWM_INST_0 = 0,
-    PWM_INST_1,
-    PWM_INST_COUNT,
-} pwm_inst_t;
+    HRPWM_INST_0 = 0,
+    HRPWM_INST_1,
+    HRPWM_INST_COUNT,
+} hrpwm_inst_t;
 
-void pwm_init(void);
-void pwm_set_duty(pwm_pair_t pair, float duty);
-void pwm_set_frequency(pwm_inst_t inst, uint32_t freq_hz);
-void pwm_set_jitter(pwm_pair_t pair, uint8_t jitter_cmp);
-void pwm_start(pwm_pair_t pair);
-void pwm_stop(pwm_pair_t pair);
-void pwm_stop_all(void);
-void pwm_force_low(pwm_pair_t pair);
-void pwm_force_release(pwm_pair_t pair);
-void pwm_emergency_stop(void);
-void pwm_resume(void);
-void app_pwm_config_fault(void);
-void app_pwm_clear_fault(void);
+void hrpwm_init(void);
+void hrpwm_set_duty(hrpwm_pair_t pair, float duty);
+void hrpwm_set_frequency(hrpwm_inst_t inst, uint32_t freq_hz);
+void hrpwm_set_jitter(hrpwm_pair_t pair, uint8_t jitter_cmp);
+void hrpwm_start(hrpwm_pair_t pair);
+void hrpwm_stop(hrpwm_pair_t pair);
+void hrpwm_stop_all(void);
+void hrpwm_force_low(hrpwm_pair_t pair);
+void hrpwm_force_release(hrpwm_pair_t pair);
+void hrpwm_emergency_stop(void);
+void hrpwm_resume(void);
+void app_hrpwm_config_fault(void);
+void app_hrpwm_clear_fault(void);
 
-void pwm_set_phase(pwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg);
-void pwm_config_phase_limit(pwm_inst_t inst,
-                            float max_phase_deg,
-                            float max_duty_ref,
-                            float max_duty_target);
+void hrpwm_set_phase(hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg);
+void hrpwm_config_phase_limit(hrpwm_inst_t inst,
+                              float max_phase_deg,
+                              float max_duty_ref,
+                              float max_duty_target);
 
 #endif /* APP_HRPWM_H */

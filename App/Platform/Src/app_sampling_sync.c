@@ -93,13 +93,13 @@ int app_sampling_sync_init(const app_sampling_sync_cfg_t *cfg)
 
     hpm_adc_driver_register();
 
-    if (intf_hrpwm_config_trigger_cmp(PWM_INST_0,
+    if (intf_hrpwm_config_trigger_cmp(HRPWM_INST_0,
                                       APP_SAMPLING_SYNC_TRIGGER_CMP_INDEX,
                                       active_cfg->trigger_position_ratio) != 0) {
         return -1;
     }
 
-    if (intf_hrpwm_config_trigger_cmp(PWM_INST_1,
+    if (intf_hrpwm_config_trigger_cmp(HRPWM_INST_1,
                                       APP_SAMPLING_SYNC_TRIGGER_CMP_INDEX,
                                       active_cfg->trigger_position_ratio) != 0) {
         return -1;

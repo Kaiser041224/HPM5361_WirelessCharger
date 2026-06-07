@@ -98,7 +98,7 @@ void app_debug_adc_pmt_init(void)
 
     app_debug_printf("\r\n[ADC] === ADC PMT + PWM + TRGM Test ===\r\n");
 
-    pwm_init();
+    hrpwm_init();
 
     app_sampling_sync_cfg_t sync_cfg;
     app_sampling_sync_get_default_config(&sync_cfg);

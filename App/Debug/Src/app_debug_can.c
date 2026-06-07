@@ -227,4 +227,5 @@ void app_debug_can_loopback_test(void)
 
     intf_can_config_irq_callback(0, NULL, NULL);
     intf_can_deinit(0);
+    app_can_init();
 }
