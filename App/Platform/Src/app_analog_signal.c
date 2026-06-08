@@ -502,9 +502,8 @@ int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t *raw)
  *
  * 完成默认标定装载，以及每路滤波器初始化。
  *
- * @note ADC 采样模式初始化由外部采样链路拥有者负责，例如
- *       `app_adc` 或 `app_sampling_sync`。本模块只消费原始结果并
- *       完成物理量换算与滤波。
+ * @note ADC 采样模式初始化由 `app_adc_init()` 负责。
+ *       本模块只消费原始结果并完成物理量换算与滤波。
  */
 void app_analog_signal_init(void)
 {

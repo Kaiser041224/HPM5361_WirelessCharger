@@ -10,5 +10,6 @@
  * @note 适合在主循环中周期性调用。
  */
 void app_debug_can_run_tests(void);
+void app_debug_can_loopback_test(void);
 
 #endif /* APP_DEBUG_CAN_H */

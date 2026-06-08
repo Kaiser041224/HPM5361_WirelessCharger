@@ -1,30 +1,44 @@
 /*
- * ADC App Layer
+ * ADC App Layer - Full PMT Initialization
  *
  * Copyright (c) 2026 HPMicro
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #include "app_adc.h"
+#include "app_hrpwm.h"
 
 #include "intf_adc.h"
+#include "intf_hrpwm.h"
+#include "intf_trgm.h"
+
 #include <stddef.h>
+
+/* ============================================================================
+ * Channel Mapping
+ * ============================================================================ */
 
 typedef struct {
     uint8_t inst;
     uint8_t hw_ch;
 } app_adc_map_t;
 
-/* ADC0 (PWM0): V_IN + I_IN + I_L + V_LINK
- * ADC1 (PWM1): I_COIL + I_LF */
+/*
+ * ADC0 (PWM0): V_IN + I_IN + I_L + V_LINK
+ * ADC1 (PWM1): I_COIL + I_LF
+ */
 static const app_adc_map_t adc_map[ADC_CH_COUNT] = {
-    [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 6},   /* PB14 */
-    [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 11},  /* PB08 */
-    [ADC_CH_I_L]    = {.inst = APP_ADC_INST_0, .hw_ch = 2},   /* PB10 */
-    [ADC_CH_V_LINK] = {.inst = APP_ADC_INST_0, .hw_ch = 3},   /* PB11 */
-    [ADC_CH_I_COIL] = {.inst = APP_ADC_INST_1, .hw_ch = 4},   /* PB12 */
-    [ADC_CH_I_LF]   = {.inst = APP_ADC_INST_1, .hw_ch = 5},   /* PB13 */
+    [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 6},
+    [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 11},
+    [ADC_CH_I_L]    = {.inst = APP_ADC_INST_0, .hw_ch = 2},
+    [ADC_CH_V_LINK] = {.inst = APP_ADC_INST_0, .hw_ch = 3},
+    [ADC_CH_I_COIL] = {.inst = APP_ADC_INST_1, .hw_ch = 4},
+    [ADC_CH_I_LF]   = {.inst = APP_ADC_INST_1, .hw_ch = 5},
 };
+
+/* ============================================================================
+ * Calibration State
+ * ============================================================================ */
 
 static app_adc_calibration_t adc_calibration[ADC_CH_COUNT] = {
     [ADC_CH_V_IN]   = {.sense_gain = 1.0f, .sense_offset_mv = 0.0f, .physical_gain = 1.0f, .physical_offset = 0.0f},
@@ -35,7 +49,9 @@ static app_adc_calibration_t adc_calibration[ADC_CH_COUNT] = {
     [ADC_CH_I_LF]   = {.sense_gain = 1.0f, .sense_offset_mv = 0.0f, .physical_gain = 1.0f, .physical_offset = 0.0f},
 };
 
-extern void hpm_adc_driver_register(void);
+/* ============================================================================
+ * Helpers
+ * ============================================================================ */
 
 static bool app_adc_channel_is_valid(adc_channel_t ch)
 {
@@ -47,46 +63,160 @@ static intf_adc_ch_t app_adc_encoded_channel(adc_channel_t ch)
     return INTF_ADC_CH(adc_map[ch].inst, adc_map[ch].hw_ch);
 }
 
-static void app_adc_flush_oneshot_result(adc_channel_t ch)
-{
-    uint16_t dummy;
+/* ============================================================================
+ * PMT Raw Cache (written by ISR callbacks, read by debug / control)
+ * ============================================================================ */
 
-    (void)intf_adc_read(app_adc_encoded_channel(ch), &dummy);
-    (void)intf_adc_read(app_adc_encoded_channel(ch), &dummy);
+static volatile uint16_t pmt_raw_cache[ADC_CH_COUNT];
+
+int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw)
+{
+    if (!app_adc_channel_is_valid(ch) || raw == NULL) return -1;
+    *raw = pmt_raw_cache[ch];
+    return 0;
 }
 
-/* ========================================================================
- * 基本操作 (Oneshot)
- * ======================================================================== */
+/* ============================================================================
+ * PMT DMA Buffers (non-cacheable, 4-byte aligned)
+ * ============================================================================ */
+
+static uint32_t pmt_dma0[APP_ADC_PMT_DMA_BUFF_LEN] __attribute__((section(".noncacheable"), aligned(4)));
+static uint32_t pmt_dma1[APP_ADC_PMT_DMA_BUFF_LEN] __attribute__((section(".noncacheable"), aligned(4)));
+
+/* ============================================================================
+ * PMT Callbacks → write to pmt_raw_cache
+ * ============================================================================ */
+
+static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint8_t count, void *user_data)
+{
+    (void)trig;
+    (void)user_data;
+
+    static const adc_channel_t hw_to_logic[16] = {
+        [6]  = ADC_CH_V_IN,
+        [11] = ADC_CH_I_IN,
+        [2]  = ADC_CH_I_L,
+        [3]  = ADC_CH_V_LINK,
+    };
+
+    for (uint8_t i = 0; i < count && i < 4U; i++) {
+        uint8_t hw_ch = (i == 0) ? 6U : (i == 1) ? 11U : (i == 2) ? 2U : 3U;
+        if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
+            pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
+        }
+    }
+}
+
+static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint8_t count, void *user_data)
+{
+    (void)trig;
+    (void)user_data;
+
+    static const adc_channel_t hw_to_logic[16] = {
+        [4] = ADC_CH_I_COIL,
+        [5] = ADC_CH_I_LF,
+    };
+
+    for (uint8_t i = 0; i < count && i < 2U; i++) {
+        uint8_t hw_ch = (i == 0) ? 4U : 5U;
+        if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
+            pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
+        }
+    }
+}
+
+/* ============================================================================
+ * Public API: app_adc_init (Full PMT with TRGM + HRPWM trigger chain)
+ * ============================================================================ */
+
+extern void hpm_adc_driver_register(void);
+extern void hpm_trgm_driver_register(void);
 
 void app_adc_init(void)
 {
     hpm_adc_driver_register();
+    hpm_trgm_driver_register();
 
-    intf_adc_cfg_t cfg = {
-        .resolution   = INTF_ADC_RES_DEFAULT,
-        .mode         = INTF_ADC_MODE_ONESHOT,
-        .sample_cycle = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
-        .clock_div    = INTF_ADC_DEFAULT_CLOCK_DIV,
-        .vref_mv      = INTF_ADC_DEFAULT_VREF_MV,
-    };
+    /* ================================================================
+     * Steps 1-2: ADC0 + ADC1 full init (calibration, channels, PMT,
+     *            DMA, interrupts) — must complete before any trigger
+     *            signal reaches the ADC inputs.
+     * ================================================================ */
 
-    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
-        (void)intf_adc_init(app_adc_encoded_channel(ch), &cfg);
+    /* ADC0 PMT — 4 channels (V_IN, I_IN, I_L, V_LINK) on trig_ch=0 */
+    {
+        intf_adc_cfg_t cfg = {
+            .resolution       = INTF_ADC_RES_DEFAULT,
+            .mode             = INTF_ADC_MODE_PMT,
+            .sample_cycle     = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+            .clock_div        = INTF_ADC_DEFAULT_CLOCK_DIV,
+            .vref_mv          = INTF_ADC_DEFAULT_VREF_MV,
+            .dma_en           = true,
+            .dma_buff         = pmt_dma0,
+            .dma_buff_len     = APP_ADC_PMT_DMA_BUFF_LEN,
+            .pmt_trig_ch      = APP_ADC_PMT_ADC0_TRIG_CH,
+            .pmt_ch_count     = APP_ADC_PMT_ADC0_CH_COUNT,
+            .pmt_cb           = app_adc_pmt_cb_adc0,
+            .pmt_cb_user_data = NULL,
+        };
+        cfg.pmt_ch_list[0] = 6U;
+        cfg.pmt_ch_list[1] = 11U;
+        cfg.pmt_ch_list[2] = 2U;
+        cfg.pmt_ch_list[3] = 3U;
+        (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_0, 0), &cfg);
     }
 
-    /* flush stale BUS_RESULT after init (oneshot only) */
-    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
-        app_adc_flush_oneshot_result(ch);
+    /* ADC1 PMT — 2 channels (I_COIL, I_LF) on trig_ch=3 */
+    {
+        intf_adc_cfg_t cfg = {
+            .resolution       = INTF_ADC_RES_DEFAULT,
+            .mode             = INTF_ADC_MODE_PMT,
+            .sample_cycle     = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+            .clock_div        = INTF_ADC_DEFAULT_CLOCK_DIV,
+            .vref_mv          = INTF_ADC_DEFAULT_VREF_MV,
+            .dma_en           = true,
+            .dma_buff         = pmt_dma1,
+            .dma_buff_len     = APP_ADC_PMT_DMA_BUFF_LEN,
+            .pmt_trig_ch      = APP_ADC_PMT_ADC1_TRIG_CH,
+            .pmt_ch_count     = APP_ADC_PMT_ADC1_CH_COUNT,
+            .pmt_cb           = app_adc_pmt_cb_adc1,
+            .pmt_cb_user_data = NULL,
+        };
+        cfg.pmt_ch_list[0] = 4U;
+        cfg.pmt_ch_list[1] = 5U;
+        (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_1, 0), &cfg);
     }
+
+    /* ================================================================
+     * Step 3: TRGM routing — connects PWM compare outputs to ADC
+     *         preemption trigger inputs. PWM counters are NOT yet
+     *         running, so no signal flows.
+     * ================================================================ */
+    (void)intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
+    (void)intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
+
+    /* ================================================================
+     * Step 4: HRPWM trigger compare — configures CMP8 shadow registers.
+     *         PWM counters are NOT running; CMP8 takes effect on first
+     *         counter start (hrpwm_start_all).
+     * ================================================================ */
+    (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_0,
+                                        APP_ADC_PMT_TRIGGER_CMP_INDEX,
+                                        APP_ADC_PMT_POSITION_RATIO);
+    (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_1,
+                                        APP_ADC_PMT_TRIGGER_CMP_INDEX,
+                                        APP_ADC_PMT_POSITION_RATIO);
 }
+
+/* ============================================================================
+ * Oneshot Read API
+ * ============================================================================ */
 
 uint16_t app_adc_read_raw(adc_channel_t ch)
 {
     if (!app_adc_channel_is_valid(ch)) return 0;
 
-    uint16_t raw;
-    raw = 0;
+    uint16_t raw = 0;
     (void)intf_adc_read(app_adc_encoded_channel(ch), &raw);
     return raw;
 }
@@ -102,7 +232,6 @@ void app_adc_read_all(uint16_t values[ADC_CH_COUNT])
 int app_adc_read_adc_voltage_mv(adc_channel_t ch, float *voltage_mv)
 {
     if (!app_adc_channel_is_valid(ch) || voltage_mv == NULL) return -1;
-
     return intf_adc_read_voltage(app_adc_encoded_channel(ch), voltage_mv);
 }
 
@@ -128,17 +257,19 @@ int app_adc_read_physical(adc_channel_t ch, float *value)
     return 0;
 }
 
+/* ============================================================================
+ * Calibration API
+ * ============================================================================ */
+
 void app_adc_set_calibration(adc_channel_t ch, const app_adc_calibration_t *cal)
 {
     if (!app_adc_channel_is_valid(ch) || cal == NULL) return;
-
     adc_calibration[ch] = *cal;
 }
 
 int app_adc_get_calibration(adc_channel_t ch, app_adc_calibration_t *cal)
 {
     if (!app_adc_channel_is_valid(ch) || cal == NULL) return -1;
-
     *cal = adc_calibration[ch];
     return 0;
 }
@@ -146,7 +277,6 @@ int app_adc_get_calibration(adc_channel_t ch, app_adc_calibration_t *cal)
 void app_adc_set_vref_inst(app_adc_inst_t inst, float mv)
 {
     if (inst >= APP_ADC_INST_COUNT) return;
-
     intf_adc_set_vref(INTF_ADC_CH(inst, 0), mv);
 }
 
@@ -163,78 +293,41 @@ void app_adc_calibrate(void)
     intf_adc_calibrate(INTF_ADC_CH(1, 0));
 }
 
-/* ========================================================================
- * PMT 硬件触发
- * ======================================================================== */
-
-void app_adc_pmt_init(uint8_t pmt_trig,
-                  const adc_channel_t *ch_list, uint8_t count,
-                  intf_adc_pmt_cb_t cb, void *user_data)
-{
-    if (count == 0 || count > 4 || ch_list == NULL) return;
-
-    if (!app_adc_channel_is_valid(ch_list[0])) return;
-
-    uint8_t hw_list[4];
-    uint8_t inst = adc_map[ch_list[0]].inst;
-
-    for (uint8_t i = 0; i < count; i++) {
-        if (!app_adc_channel_is_valid(ch_list[i])) return;
-        if (adc_map[ch_list[i]].inst != inst) return;
-        hw_list[i] = adc_map[ch_list[i]].hw_ch;
-    }
-
-    intf_adc_cfg_t cfg = {
-        .resolution      = INTF_ADC_RES_DEFAULT,
-        .mode            = INTF_ADC_MODE_PMT,
-        .sample_cycle    = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
-        .clock_div       = INTF_ADC_DEFAULT_CLOCK_DIV,
-        .vref_mv         = INTF_ADC_DEFAULT_VREF_MV,
-        .pmt_trig_ch     = pmt_trig,
-        .pmt_ch_count    = count,
-        .pmt_cb          = cb,
-        .pmt_cb_user_data = user_data,
-    };
-    for (uint8_t i = 0; i < count; i++) {
-        cfg.pmt_ch_list[i] = hw_list[i];
-    }
-
-    (void)intf_adc_init(INTF_ADC_CH(inst, 0), &cfg);
-}
+/* ============================================================================
+ * PMT Control API
+ * ============================================================================ */
 
 void app_adc_pmt_start_inst(app_adc_inst_t inst)
 {
     if (inst >= APP_ADC_INST_COUNT) return;
-
     (void)intf_adc_start(INTF_ADC_CH(inst, 0));
 }
 
 void app_adc_pmt_stop_inst(app_adc_inst_t inst)
 {
     if (inst >= APP_ADC_INST_COUNT) return;
-
     (void)intf_adc_stop(INTF_ADC_CH(inst, 0));
 }
 
-/* ========================================================================
- * Watchdog
- * ======================================================================== */
+/* ============================================================================
+ * Watchdog API
+ * ============================================================================ */
 
 void app_adc_wdog_init(adc_channel_t ch, uint16_t thshd_high, uint16_t thshd_low,
-                   intf_adc_wdog_cb_t cb, void *user_data)
+                       intf_adc_wdog_cb_t cb, void *user_data)
 {
     if (!app_adc_channel_is_valid(ch)) return;
 
     intf_adc_cfg_t cfg = {
-        .resolution      = INTF_ADC_RES_DEFAULT,
-        .mode            = INTF_ADC_MODE_ONESHOT,
-        .sample_cycle    = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
-        .clock_div       = INTF_ADC_DEFAULT_CLOCK_DIV,
-        .vref_mv         = INTF_ADC_DEFAULT_VREF_MV,
-        .wdog_en         = true,
-        .wdog_thshd_high  = thshd_high,
-        .wdog_thshd_low   = thshd_low,
-        .wdog_cb          = cb,
+        .resolution     = INTF_ADC_RES_DEFAULT,
+        .mode           = INTF_ADC_MODE_ONESHOT,
+        .sample_cycle   = INTF_ADC_DEFAULT_SAMPLE_CYCLE,
+        .clock_div      = INTF_ADC_DEFAULT_CLOCK_DIV,
+        .vref_mv        = INTF_ADC_DEFAULT_VREF_MV,
+        .wdog_en        = true,
+        .wdog_thshd_high = thshd_high,
+        .wdog_thshd_low  = thshd_low,
+        .wdog_cb        = cb,
         .wdog_cb_user_data = user_data,
     };
 

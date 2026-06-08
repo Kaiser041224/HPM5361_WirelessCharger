@@ -1,5 +1,6 @@
 #include "app_entry.h"
 
+#include "app_adc.h"
 #include "app_comm.h"
 #include "app_control.h"
 
@@ -19,12 +20,15 @@ void app_init(void) {
 
     app_gpio_init();
     app_gpio_set(PIN_DRVPWR, false);
-    // 测试期间手动关闭功率电路mos栅极驱动电源，保护功率电路，完全不影响ADC测试和调试！
 
-    hrpwm_init();
+    hrpwm_init();                /* PWM configured, NOT started (quiet for ADC cal) */
+    app_adc_init();              /* ADC calibration + PMT setup in quiet environment */
+    hrpwm_start_all();           /* PWM starts only after ADC is fully calibrated */
+
     app_analog_signal_init();
     app_buzzer_init();
     app_ws2812_init();
+
     app_can_register_driver();
     app_can_init();
 

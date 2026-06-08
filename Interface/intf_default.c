@@ -2,6 +2,7 @@
 #include "intf_hrpwm.h"
 #include "intf_gpwm.h"
 #include "intf_adc.h"
+#include "intf_trgm.h"
 #include "intf_uart.h"
 #include "intf_spi.h"
 #include "intf_i2c.h"
@@ -264,6 +265,25 @@ int intf_gpwm_capture_stop(intf_gpwm_ch_t ch)
 int intf_gpwm_capture_poll(intf_gpwm_ch_t ch, intf_gpwm_capture_t *capture)
 {
     if (gpwm_ops && gpwm_ops->capture_poll) return gpwm_ops->capture_poll(ch, capture);
+    return -1;
+}
+
+/* ============================================================================
+ * TRGM Interface
+ * ============================================================================ */
+
+static const intf_trgm_t *trgm_ops = NULL;
+
+int intf_trgm_register(const intf_trgm_t *ops)
+{
+    if (ops == NULL) return -1;
+    trgm_ops = ops;
+    return 0;
+}
+
+int intf_trgm_connect(intf_trgm_src_t src, intf_trgm_dst_t dst)
+{
+    if (trgm_ops && trgm_ops->connect) return trgm_ops->connect(src, dst);
     return -1;
 }
 

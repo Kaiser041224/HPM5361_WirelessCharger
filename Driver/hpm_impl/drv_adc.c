@@ -15,6 +15,14 @@
 #include "hpm_sysctl_drv.h"
 
 #include <stddef.h>
+#include <string.h>
+
+/* RTT debug — enable to trace PMT DMA data in ISR */
+#define ADC_PMT_ISR_TRACE 0
+#if ADC_PMT_ISR_TRACE
+#include "SEGGER_RTT.h"
+static uint32_t pmt_trace_cnt[2];
+#endif
 
 #define ADC_DEFAULT_VREF_MV       INTF_ADC_DEFAULT_VREF_MV
 #define ADC_DEFAULT_SAMPLE_CYCLE  INTF_ADC_DEFAULT_SAMPLE_CYCLE
@@ -26,6 +34,9 @@
 #define ADC_PMT_MAX_TRIG          (11U)
 #define ADC_PMT_DMA_SLOT_LEN      (4U)
 #define ADC_SEQ_MAX_LEN           16U
+
+/* Discard first N PMT trigger completions to avoid startup transient garbage */
+#define ADC_PMT_STARTUP_DISCARD   (8U)
 
 /* ============================================================================
  * Instance State
@@ -51,6 +62,7 @@ typedef struct {
         uint8_t            ch_list[4];
         intf_adc_pmt_cb_t  cb;
         void              *cb_user_data;
+        uint32_t           frame_cnt;
     } pmt;
     /* Sequence */
     struct {
@@ -216,6 +228,11 @@ static void adc_generic_isr(uint8_t inst)
 
     /* PMT trigger complete */
     if (ADC16_INT_STS_TRIG_CMPT_GET(status) && ai->mode == INTF_ADC_MODE_PMT) {
+        ai->pmt.frame_cnt++;
+        if (ai->pmt.frame_cnt < ADC_PMT_STARTUP_DISCARD) {
+            return;
+        }
+
         if (ai->pmt.cb && ai->pmt.ch_count > 0) {
             uint16_t values[4];
             uint8_t  valid = 0;
@@ -225,6 +242,17 @@ static void adc_generic_isr(uint8_t inst)
                 adc16_pmt_dma_data_t *dma = (adc16_pmt_dma_data_t *)&ai->dma.buff[dma_offset];
                 for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
                     values[valid] = dma[i].result;
+#if ADC_PMT_ISR_TRACE
+                    if (inst < 2 && (++pmt_trace_cnt[inst] % 2000) == 0) {
+                        SEGGER_RTT_printf(0,
+                            "[PMT-ISR] ADC%d trig=%d #%lu ch[%d]=hw%d result=0x%04X\r\n",
+                            inst, ai->pmt.trig_ch, pmt_trace_cnt[inst],
+                            i, dma[i].adc_ch, dma[i].result);
+                    }
+#endif
+                    if (dma[i].cycle_bit == 0)       continue;
+                    if (dma[i].trig_ch != ai->pmt.trig_ch) continue;
+                    if (dma[i].adc_ch  != ai->pmt.ch_list[i]) continue;
                     valid++;
                 }
             } else {
@@ -237,7 +265,7 @@ static void adc_generic_isr(uint8_t inst)
                 }
             }
 
-            if (valid > 0) {
+            if (valid == ai->pmt.ch_count) {
                 ai->pmt.cb(INTF_ADC_CH(inst, ai->pmt.trig_ch), values, valid, ai->pmt.cb_user_data);
             }
         }
@@ -337,6 +365,7 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
             adc_cfg.sel_sync_ahb = true;
             adc_cfg.adc_ahb_en   = false;
         } else {
+            adc_cfg.sel_sync_ahb = false;
             adc_cfg.adc_ahb_en   = true;
         }
 
@@ -395,6 +424,17 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
 
         if (adc16_set_pmt_config(ai->base, &pmt_cfg) != status_success) return -1;
         adc16_enable_pmt_queue(ai->base, cfg->pmt_trig_ch);
+
+        /* Explicitly disable all other trig_ch — hardware reset may leave
+         * stale QUEUE_EN bits.  Without this, cross-triggering from shared
+         * PTRGI inputs causes the PMT state machine to process garbage
+         * channel lists, corrupting subsequent conversion results. */
+        for (uint8_t t = 0; t < ADC_PMT_MAX_TRIG; t++) {
+            if (t != cfg->pmt_trig_ch) {
+                adc16_disable_pmt_queue(ai->base, t);
+            }
+        }
+
         adc16_enable_interrupts(ai->base, adc16_event_trig_complete);
 
         if (cfg->dma_en && cfg->dma_buff != NULL) {
@@ -407,6 +447,11 @@ static int adc_init(intf_adc_ch_t ch, const intf_adc_cfg_t *cfg)
             adc16_init_pmt_dma(ai->base,
                 core_local_mem_to_sys_address(0, (uint32_t)cfg->dma_buff));
         }
+
+#if defined(HPM_IP_FEATURE_ADC16_HAS_MOT_EN) && HPM_IP_FEATURE_ADC16_HAS_MOT_EN
+        adc16_enable_motor(ai->base);
+#endif
+        ai->pmt.frame_cnt = 0;
 
         adc_enable_instance_irq(inst);
         return 0;
@@ -631,6 +676,7 @@ static int adc_calibrate(void)
             adc_cfg.sel_sync_ahb = true;
             adc_cfg.adc_ahb_en   = false;
         } else {
+            adc_cfg.sel_sync_ahb = false;
             adc_cfg.adc_ahb_en   = true;
         }
 

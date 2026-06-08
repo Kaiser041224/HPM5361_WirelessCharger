@@ -31,6 +31,7 @@ void hrpwm_set_jitter(hrpwm_pair_t pair, uint8_t jitter_cmp);
 void hrpwm_start(hrpwm_pair_t pair);
 void hrpwm_stop(hrpwm_pair_t pair);
 void hrpwm_stop_all(void);
+void hrpwm_start_all(void);
 void hrpwm_force_low(hrpwm_pair_t pair);
 void hrpwm_force_release(hrpwm_pair_t pair);
 void hrpwm_emergency_stop(void);

@@ -67,7 +67,7 @@ HPM5361_WirelessCharger/
 │   ├── Application/            # 应用编排 (app_entry/app_control/app_comm)
 │   ├── Control/                # 面向对象控制器 (ctrl_buckboost/ctrl_lcc/ctrl_fault)
 │   ├── Algorithm/              # 纯算法库 (PID/PLL/Ramp/RMS/FFD/Filter)
-│   ├── Platform/               # 应用级平台封装 (app_hrpwm/app_adc/app_sampling_sync/app_can)
+│   ├── Platform/               # 应用级平台封装 (app_hrpwm/app_adc/app_can)
 │   └── Debug/                  # 调试测试 (app_debug_rtt/app_debug_adc/app_debug_can/app_debug_hrpwm)
 ├── doc/                        # 文档
 │   ├── hrpwm_driver_design.md  # HRPWM 驱动设计文档
@@ -83,7 +83,7 @@ HPM5361_WirelessCharger/
 - `Application/`：放应用入口、业务编排、运行时调度，不直接承载具体外设访问。
 - `Control/`：放控制状态机、闭环调节、功率级控制、保护策略。
 - `Algorithm/`：放纯算法库，尽量不依赖 `app_*` 或 `hpm_*` 头文件。
-- `Platform/`：放 `app_adc`、`app_hrpwm`、`app_sampling_sync`、`app_gpio` 等应用级平台能力封装。
+- `Platform/`：放 `app_adc`、`app_hrpwm`、`app_gpio` 等应用级平台能力封装。
 - `Debug/`：放 RTT 输出、调试测试入口、参数验证辅助代码。
 
 这样划分后：

@@ -64,7 +64,7 @@ void hrpwm_init(void) {
 
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
         (void)intf_hrpwm_init_pair(hrpwm_pair_channel(pair), &cfg[pair]);
-        (void)intf_hrpwm_start(hrpwm_pair_channel(pair));
+        /* PWM configured but NOT started — ADC calibrates in quiet environment first */
     }
 }
 
@@ -107,6 +107,12 @@ void hrpwm_stop(hrpwm_pair_t pair) {
 void hrpwm_stop_all(void) {
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
         hrpwm_stop(pair);
+    }
+}
+
+void hrpwm_start_all(void) {
+    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+        hrpwm_start(pair);
     }
 }
 

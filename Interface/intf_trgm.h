@@ -1,5 +1,5 @@
 /*
- * TRGM Interface - Trigger Mux signal routing
+ * TRGM Interface - C17 Abstract Interface (multi-instance)
  *
  * Copyright (c) 2026 HPMicro
  * SPDX-License-Identifier: BSD-3-Clause
@@ -9,13 +9,21 @@
 #define INTF_TRGM_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/* ============================================================================
+ * Trigger Source Enumeration
+ *
+ * HPM5361 supports TRGM0/1 instances. Current usage routes PWM compare
+ * reference outputs to ADC preemption trigger inputs (PTRGIxA/xB/xC).
+ * ============================================================================ */
+
 typedef enum {
-    INTF_TRGM_SRC_PWM0_CH8REF = 0,
+    INTF_TRGM_SRC_PWM0_CH8REF  = 0,
     INTF_TRGM_SRC_PWM0_CH9REF,
     INTF_TRGM_SRC_PWM0_CH10REF,
     INTF_TRGM_SRC_PWM0_CH11REF,
@@ -24,6 +32,10 @@ typedef enum {
     INTF_TRGM_SRC_PWM1_CH10REF,
     INTF_TRGM_SRC_PWM1_CH11REF,
 } intf_trgm_src_t;
+
+/* ============================================================================
+ * Trigger Destination Enumeration
+ * ============================================================================ */
 
 typedef enum {
     INTF_TRGM_DST_ADC_PTRGI0A = 0,   /* → ADC TRG0A (pmt_trig_ch=0) */
@@ -34,9 +46,30 @@ typedef enum {
     INTF_TRGM_DST_ADC_PTRGI1C,       /* → ADC TRG1C (pmt_trig_ch=5) */
 } intf_trgm_dst_t;
 
+/* ============================================================================
+ * Interface Definition (Object-Oriented C17)
+ * ============================================================================ */
+
+typedef struct {
+    uint8_t instance_id;
+    struct {
+        int (*connect)(intf_trgm_src_t src, intf_trgm_dst_t dst);
+    };
+} intf_trgm_t;
+
+/* ============================================================================
+ * Registration API
+ * ============================================================================ */
+
+int intf_trgm_register(const intf_trgm_t *ops);
+
+/* ============================================================================
+ * Functional API (wraps ops)
+ * ============================================================================ */
+
 int intf_trgm_connect(intf_trgm_src_t src, intf_trgm_dst_t dst);
 
 #ifdef __cplusplus
 }
 #endif
-#endif
+#endif /* INTF_TRGM_H */
