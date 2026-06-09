@@ -27,7 +27,7 @@ void app_debug_adc_dump_channels(void) {
 
         app_debug_printf(
             "[ADC]  %s   ADC%d  0x%04X   %5u   %8.1f   %9.1f   %8.3f\r\n", adc_ch_names[ch],
-            (ch <= ADC_CH_V_LINK) ? 0 : 1, raw, raw, adc_mv, sense_mv, physical);
+            (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 0 : 1, raw, raw, adc_mv, sense_mv, physical);
     }
 }
 
@@ -49,7 +49,7 @@ void app_debug_adc_dump_pmt(void) {
     app_debug_printf("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
 
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
-        int inst = (ch >= ADC_CH_I_COIL) ? 1 : 0;
+        int inst = (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 0 : 1;
         float mv = (float)val[ch] * 3300.0f / 65535.0f;
         app_debug_printf(
             "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch], inst, val[ch], val[ch],
@@ -74,6 +74,6 @@ void app_debug_adc_run_tests(void) {
         (void)app_adc_read_adc_voltage_mv(ch, &mv);
         app_debug_printf(
             "[ADC]  %s   ADC%d  0x%04X   %5u   %8.1f\r\n", adc_ch_names[ch],
-            (ch <= ADC_CH_V_LINK) ? 0 : 1, val[ch], val[ch], mv);
+            (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 0 : 1, val[ch], val[ch], mv);
     }
 }

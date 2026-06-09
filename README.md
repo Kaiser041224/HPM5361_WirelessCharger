@@ -1,8 +1,31 @@
 # HPM5361 Wireless Charger
 
-HPM (HPMicro) 嵌入式开发工程模板，基于 **Board/Interface/Driver/App** 四层架构。
+基于 HPMicro HPM5361 (RISC-V, 480MHz) 的无线充电器控制系统。采用 Buck-Boost + LCC 级联拓扑，支持闭环功率控制、CAN 通信和故障保护。
 
-## 架构概览
+---
+
+## 硬件平台
+
+| 项目 | 规格 |
+|------|------|
+| MCU | HPM5361 (RISC-V, 双核 480MHz) |
+| PWM | 2× HRPWM (PWM0 + PWM1)，28-bit 扩展计数器 |
+| ADC | 2× ADC16 (ADC0 + ADC1)，16-bit，PMT 模式 |
+| 通信 | CAN 2.0B (MCAN) |
+| 调试 | SEGGER RTT + JTAG |
+
+### 拓扑结构
+
+```
+V_IN ──→ [Buck-Boost] ──→ V_LINK ──→ [LCC 全桥] ──→ 线圈 ──→ 接收端
+           PWM0                          PWM1
+```
+
+---
+
+## 软件架构
+
+采用 **Board / Interface / Driver / App** 四层解耦架构，App 层与芯片外设完全隔离。
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -10,10 +33,10 @@ HPM (HPMicro) 嵌入式开发工程模板，基于 **Board/Interface/Driver/App*
 │              禁止包含任何 hpm_* 头文件                     │
 ├─────────────────────────────────────────────────────────┤
 │                Interface (C17 抽象接口)                   │
-│    intf_hrpwm.h / intf_gpwm.h / intf_gpio.h / ...       │
+│    intf_hrpwm.h / intf_adc.h / intf_trgm.h / ...        │
 ├─────────────────────────────────────────────────────────┤
 │              Driver/hpm_impl (SDK 适配层)                 │
-│    drv_hrpwm.c / drv_gpwm.c / drv_gpio.c (唯一可调用     │
+│    drv_hrpwm.c / drv_adc.c / drv_trgm.c (唯一可调用     │
 │                   hpm_sdk API 的地方)                    │
 ├─────────────────────────────────────────────────────────┤
 │                Board (硬件配置层)                         │
@@ -22,188 +45,226 @@ HPM (HPMicro) 嵌入式开发工程模板，基于 **Board/Interface/Driver/App*
 └─────────────────────────────────────────────────────────┘
 ```
 
+依赖方向：
+
+```
+Application -> Control -> Platform -> Interface -> Driver -> Board
+Control     -> Algorithm
+Debug       -> Platform / Control / Interface
+```
+
+---
+
 ## 目录结构
 
 ```
 HPM5361_WirelessCharger/
-├── CMakeLists.txt              # 顶层构建配置
-├── Makefile                    # 构建入口
-├── AGENTS.md                   # 嵌入式 C17 解耦架构开发指南
-├── Board/                      # 硬件配置层
+├── CMakeLists.txt
+├── Makefile
+├── AGENTS.md                           # 开发规范
+├── README.md
+│
+├── Board/
 │   └── HPM5361_WirelessCharger_board/
-│       ├── board.c             # 板级初始化
-│       ├── board.h             # 板级定义
-│       ├── pinmux.c            # 引脚配置 (PWM0, GPTMR0, UART, GPIO...)
-│       └── pinmux.h
-├── Interface/                  # C17 抽象接口
-│   ├── intf_hrpwm.h            # HRPWM 接口 (高性能 PWM)
-│   ├── intf_gpwm.h             # GPWM 接口 (GPTMR PWM + 输入捕获)
-│   ├── intf_pwm.h              # PWM 接口 (基础 PWM)
-│   ├── intf_gpio.h             # GPIO 接口
-│   ├── intf_clock.h            # Clock 接口
-│   ├── intf_adc.h              # ADC 接口
-│   ├── intf_uart.h             # UART 接口
-│   ├── intf_spi.h              # SPI 接口
-│   ├── intf_i2c.h              # I2C 接口
-│   ├── intf_ws2812.h           # WS2812 接口
-│   ├── intf_can.h               # CAN 接口 (MCAN/CAN-FD)
-│   └── intf_default.c          # 注册分发实现
+│       ├── board.c / board.h           # 板级初始化
+│       └── pinmux.c / pinmux.h         # 引脚配置
+│
+├── Interface/                          # C17 抽象接口层
+│   ├── intf_hrpwm.h                    # HRPWM 接口
+│   ├── intf_adc.h                      # ADC 接口
+│   ├── intf_trgm.h                     # TRGM 触发路由接口
+│   ├── intf_gpwm.h                     # GPTMR PWM 接口
+│   ├── intf_gpio.h / intf_can.h / ...  # 其他外设接口
+│   └── intf_default.c                  # 注册分发实现
+│
 ├── Driver/
-│   └── hpm_impl/               # HPM SDK 适配
-│       ├── drv_hrpwm.c         # HRPWM 驱动 (映射到 HPM_PWM0)
-│       ├── drv_gpwm.c          # GPWM 驱动 (映射到 HPM_GPTMR0)
-│       ├── drv_gpio.c          # GPIO 驱动
-│       ├── drv_clock.c         # Clock 驱动
-│       ├── drv_hrpwm.h          # HRPWM 驱动宏
-│       ├── drv_mcan.c           # MCAN 驱动 (CAN-FD)
-│       ├── drv_mcan.h           # MCAN 驱动声明
-│       ├── drv_adc.c           # ADC 驱动
-│       ├── drv_uart.c          # UART 驱动
-│       ├── drv_spi.c           # SPI 驱动
-│       ├── drv_i2c.c           # I2C 驱动
-│       └── drv_ws2812.c        # WS2812 驱动
-├── App/                        # 应用层
-│   ├── main.c                  # 系统启动桥接
-│   ├── Application/            # 应用编排 (app_entry/app_control/app_comm)
-│   ├── Control/                # 面向对象控制器 (ctrl_buckboost/ctrl_lcc/ctrl_fault)
-│   ├── Algorithm/              # 纯算法库 (PID/PLL/Ramp/RMS/FFD/Filter)
-│   ├── Platform/               # 应用级平台封装 (app_hrpwm/app_adc/app_can)
-│   └── Debug/                  # 调试测试 (app_debug_rtt/app_debug_adc/app_debug_can/app_debug_hrpwm)
-├── doc/                        # 文档
-│   ├── hrpwm_driver_design.md  # HRPWM 驱动设计文档
-│   └── adc_driver_design.md    # ADC 驱动设计文档
-│   ├── hpm_pwm_gptmr_pwm_guide.md  # HPM PWM/GPTMR 使用指南
-│   └── todo.md                 # TODO 清单
-├── linkers/                    # 链接脚本
-└── output/                     # 编译输出
+│   ├── hpm_impl/                       # HPM SDK 适配层
+│   │   ├── drv_hrpwm.c / .h           # HRPWM 驱动
+│   │   ├── drv_adc.c                   # ADC16 PMT 驱动
+│   │   ├── drv_trgm.c                  # TRGM 驱动
+│   │   ├── drv_mcan.c / .h            # MCAN 驱动
+│   │   └── drv_*.c                     # 其他驱动
+│   └── WS2812/                         # WS2812 协议实现
+│
+├── App/
+│   ├── main.c                          # 程序入口
+│   │
+│   ├── Application/                    # 应用编排层
+│   │   ├── Inc/
+│   │   │   ├── app_entry.h             # 系统入口声明
+│   │   │   ├── app_control.h           # 状态机 + 模式管理
+│   │   │   └── app_comm.h              # CAN 通信
+│   │   └── Src/
+│   │       ├── app_entry.c             # 初始化顺序编排
+│   │       ├── app_control.c           # 状态机实现
+│   │       └── app_comm.c              # CAN 协议处理
+│   │
+│   ├── Control/                        # 控制器层
+│   │   ├── Inc/
+│   │   │   ├── ctrl_buckboost.h        # Buck-Boost 控制器
+│   │   │   ├── ctrl_lcc.h              # LCC 控制器
+│   │   │   ├── ctrl_fault.h            # 故障管理
+│   │   │   └── ctrl_types.h            # 控制类型定义
+│   │   └── Src/
+│   │       ├── ctrl_buckboost.c
+│   │       ├── ctrl_lcc.c
+│   │       └── ctrl_fault.c
+│   │
+│   ├── Platform/                       # 硬件能力封装层
+│   │   ├── Inc/
+│   │   │   ├── app_adc.h               # ADC 平台 API
+│   │   │   ├── app_hrpwm.h             # HRPWM 平台 API
+│   │   │   ├── app_gpio.h              # GPIO 平台 API
+│   │   │   ├── app_can.h               # CAN 平台 API
+│   │   │   └── app_analog_signal.h     # 模拟信号处理
+│   │   └── Src/
+│   │       ├── app_adc.c               # ADC PMT 初始化 + 回调
+│   │       ├── app_hrpwm.c             # HRPWM 初始化 + 控制
+│   │       ├── app_buzzer.c            # 蜂鸣器驱动
+│   │       └── app_ws2812.c            # LED 驱动
+│   │
+│   ├── Algorithm/                      # 纯算法库
+│   │   ├── Inc/
+│   │   │   ├── algo_pid.h              # PID 控制器
+│   │   │   ├── algo_pll.h              # PLL 锁相环
+│   │   │   ├── algo_ramp.h             # 斜坡函数
+│   │   │   ├── algo_rms.h              # RMS 计算
+│   │   │   ├── algo_ffd.h              # 前馈
+│   │   │   ├── algo_filter.h           # 滤波器
+│   │   │   └── algo_hyst.h             # 迟滞比较
+│   │   └── Src/
+│   │       └── algo_*.c
+│   │
+│   └── Debug/                          # 调试辅助层
+│       ├── Inc/
+│       │   ├── app_debug.h
+│       │   ├── app_debug_adc.h
+│       │   ├── app_debug_hrpwm.h
+│       │   └── app_debug_rtt.h
+│       └── Src/
+│           ├── app_debug.c             # 调试命令分发
+│           ├── app_debug_adc.c         # ADC 调试输出
+│           ├── app_debug_hrpwm.c       # PWM 调试输出
+│           └── app_debug_rtt.c         # RTT 输出封装
+│
+├── doc/                                # 设计文档
+│   ├── control_loop_design.md          # 控制环路设计（含触发链路）
+│   ├── hrpwm_driver_design.md          # HRPWM 驱动设计
+│   ├── adc_driver_design.md            # ADC 驱动设计
+│   ├── ADC_PMT_FIRST_CONVERSION_ANOMALY.md  # ADC PMT 首次转换问题记录
+│   ├── build_flash_debug_guide.md      # 构建烧录调试指南
+│   └── todo.md                         # 开发计划
+│
+└── linkers/                            # 链接脚本
 ```
 
-## App 层分层说明
+---
 
-- `Application/`：放应用入口、业务编排、运行时调度，不直接承载具体外设访问。
-- `Control/`：放控制状态机、闭环调节、功率级控制、保护策略。
-- `Algorithm/`：放纯算法库，尽量不依赖 `app_*` 或 `hpm_*` 头文件。
-- `Platform/`：放 `app_adc`、`app_hrpwm`、`app_gpio` 等应用级平台能力封装。
-- `Debug/`：放 RTT 输出、调试测试入口、参数验证辅助代码。
+## PWM-ADC 触发链路
 
-这样划分后：
-- 平台访问和业务逻辑分离；
-- 控制装配与纯算法分离；
-- 调试代码不会继续堆入主业务目录；
-- 后续新增算法库和控制器时不再依赖单一 `Logic/` 目录。
+双 ADC 独立触发架构，PWM CMP8 比较事件通过 TRGM 触发 ADC PMT 转换：
 
-## 分层规则
+```
+PWM0_CH8 (200kHz, CMP8) ──TRGM──→ PTRGI0A (trig_ch=0) ──→ ADC0
+PWM1_CH8 (148kHz, CMP8) ──TRGM──→ PTRGI1A (trig_ch=3) ──→ ADC1
+```
 
-| 层级 | 可包含头文件 | 职责 |
-|------|-------------|------|
-| **App** | `intf_*.h`, 标准 C | 纯业务逻辑，硬件无关 |
-| **Interface** | 标准 C | 定义抽象接口，ops 注册机制 |
-| **Driver** | `intf_*.h`, `hpm_*.h` | 实现接口，调用 SDK API |
-| **Board** | `hpm_*.h` | 时钟、引脚初始化 |
+| ADC 实例 | 触发源 | 有效通道 | 用途 |
+|:---|:---|:---|:---|
+| ADC0 | PWM0 (200kHz) | V_LINK, I_L, I_IN | Buck-Boost 控制 |
+| ADC1 | PWM1 (148kHz) | V_IN, I_COIL, I_LF | LCC 控制 + 输入监测 |
 
-## 快速开始
+每个 ADC 实例 PMT 队列 4 通道，位置 0 为 dummy（规避 HPM5361 ADC16 首次转换结果异常），有效通道 3 个。
+
+详细设计见 `doc/control_loop_design.md` 第 2.6 节。
+
+---
+
+## 系统状态机
+
+```
+INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
+  ↑                      ↑                        │
+  │                (power_disable) ←─────────(正常停机)
+  │                      │
+  └──(fault_clear)── FAULT ←──(任意状态检测到故障)
+```
+
+运行模式：
+
+| 模式 | 控制器 | 说明 |
+|:---|:---|:---|
+| `MODE_IDLE` | 无 | 无功率输出 |
+| `MODE_BUCK_CV` | ctrl_buckboost | Buck-Boost 恒压 |
+| `MODE_BUCK_CC` | ctrl_buckboost | Buck-Boost 恒流 |
+| `MODE_LCC_OPEN` | ctrl_lcc | LCC 开环 |
+| `MODE_LCC_CLOSED` | ctrl_lcc | LCC 闭环电流 |
+| `MODE_STANDBY` | 无 | 仅采样监测 |
+
+---
+
+## 构建与烧录
 
 ```bash
-# 编译
-make build
-
-# 指定板级
-make BOARD=HPM5361_WirelessCharger_board build
-
-# 导出产物
-make artifacts
+# 构建
+make build BOARD=HPM5361_WirelessCharger_board
 
 # 烧录
-make flash
+make flash BOARD=HPM5361_WirelessCharger_board
+
+# RTT 调试输出
+# 使用 J-Link RTT Viewer 连接
 ```
 
-## 已实现驱动
+详见 `doc/build_flash_debug_guide.md`。
 
-| 驱动 | 接口 | 状态 | 说明 |
-|------|------|------|------|
-| HRPWM | `intf_hrpwm.h` | ✅ 完成 | 双实例四对互补 PWM (ch0..7, PA24-PA31) |
-| GPWM | `intf_gpwm.h` | ✅ 完成 | GPTMR PWM (ch2..3) + 输入捕获 (ch1) |
-| GPIO | `intf_gpio.h` | ✅ 完成 | GPIO 输入/输出/中断 |
-| Clock | `intf_clock.h` | ✅ 完成 | PLL 配置、延迟函数 |
-| ADC | `intf_adc.h` | ✅ 完成 | ADC16 双实例 (Oneshot/Period/PMT)，含中断回调 |
-| UART | `intf_uart.h` | ❌ TODO | UART 通信 |
-| SPI | `intf_spi.h` | ❌ TODO | SPI 通信 |
-| I2C | `intf_i2c.h` | ❌ TODO | I2C 通信 |
-| WS2812 | `intf_ws2812.h` | ✅ 完成 | WS2812 LED 驱动 |
-| CAN | `intf_can.h` | ✅ 完成 | MCAN 驱动，支持 CAN 2.0 / CAN FD，中断 + 非阻塞收发 |
+---
 
-## HRPWM 驱动说明
+## 故障保护
 
-> **重要**：HPM5361 的 `PWM_SOC_HRPWM_SUPPORT = 0`，不支持真正的亚时钟级 HRPWM。当前实现基于普通 `HPM_PWM0` API。
+统一故障管理 (`ctrl_fault`)，支持 15 种故障码：
 
-- **接口**：`intf_hrpwm.h` - 匿名结构体 ops、float duty [0.0-1.0]
-- **驱动**：`drv_hrpwm.c` - 映射到 `HPM_PWM0/1`，支持四对互补输出
-- **引脚**：PA24-PA31 → PWM0/PWM1 四对输出
-- **功能**：频率/占空比动态调整、启停控制、变频后移相重放、运行态 89° 边界保护
+| 故障码 | 说明 | 响应 |
+|:---|:---|:---|
+| `FAULT_OV_VIN` | 输入过压 | PWM 锁定 |
+| `FAULT_UV_VIN` | 输入欠压 | PWM 锁定 |
+| `FAULT_OC_IIN` | 输入过流 | PWM 锁定 |
+| `FAULT_OC_IL` | 电感过流 | PWM 锁定 |
+| `FAULT_OV_VLINK` | V_LINK 过压 | PWM 锁定 |
+| `FAULT_OC_ICOIL` | 线圈过流 | PWM 锁定 |
+| `FAULT_OC_ILF` | 谐振过流 | PWM 锁定 |
+| `FAULT_OT` | 过温 | PWM 锁定 |
+| `FAULT_ADC` | ADC 异常 | 暂停更新 |
+| `FAULT_PWM` | PWM 故障 | PWM 锁定 |
 
-### HRPWM 调试验证
+---
 
-- `App/Debug/Src/app_debug_rtt.c` 提供 `app_debug_hrpwm_run_tests()` 综合测试入口。
-- 当前 `main.c` 默认调用的是 `app_debug_adc_pmt_run_tests()`；如需执行 HRPWM 综合验证，可切换到 `app_debug_hrpwm_run_tests()`。
-- `app_debug_hrpwm_run_tests()` 覆盖以下场景：
-  - 静态初始移相：start 前验证 `0~180°`
-  - 运行态连续移相：限制并验证 `0~89°`
-  - 带移相的变频重放验证
-  - 占空比分辨率验证
-- 运行态若请求 `>89°` 的连续移相，Driver 会返回 `-1` 进行边界保护。
+## 通信协议
 
-详细设计文档请参考：
-- `doc/hrpwm_driver_design.md`
-- `doc/adc_driver_design.md`
+- 物理层：CAN 2.0B, 1Mbps
+- 命令帧：START / STOP / SET_MODE / SET_TARGET / SET_PARAM / GET_STATUS / CLEAR_FAULT
+- 遥测帧：周期性上报状态、ADC 值、PWM 参数、故障码
+- 超时保护：主机长时间无心跳 → 自动进入安全态
 
-## CAN 驱动说明
+---
 
-- **接口**：`intf_can.h` — C17 匿名结构体，14 函数指针覆盖 MCAN 全功能
-- **驱动**：`drv_mcan.c` — 薄映射层，最大化复用 SDK（`mcan_get_default_config` / `mcan_init` / `mcan_parse_protocol_status`）
-- **App 封装**：`app_can.c/h` — 中断驱动 + Ring Buffer + 非阻塞收发
-- **引脚**：PA00→MCAN0_TXD, PA01→MCAN0_RXD
-- **时钟**：PLL1_CLK0 ÷ 10 = 80MHz，由 `intf_clock_init()` 统一配置
-- **功能**：经典 CAN 2.0 / CAN FD，ID+Mask 过滤器，总线状态查询，内部回环测试
+## 文档索引
 
-### CAN 使用示例
+| 文档 | 内容 |
+|:---|:---|
+| `doc/control_loop_design.md` | 控制环路设计、硬件基线、触发链路详解、时间预算 |
+| `doc/hrpwm_driver_design.md` | HRPWM 驱动设计 |
+| `doc/adc_driver_design.md` | ADC 驱动设计 |
+| `doc/ADC_PMT_FIRST_CONVERSION_ANOMALY.md` | HPM5361 ADC PMT 首次转换异常问题记录 |
+| `doc/build_flash_debug_guide.md` | 构建烧录调试指南 |
+| `doc/hpm_pwm_gptmr_pwm_guide.md` | PWM/GPTMR 使用指南 |
+| `AGENTS.md` | 嵌入式 C17 解耦架构开发规范 |
 
-```c
-#include "app_can.h"
+---
 
-void on_msg(const app_can_msg_t *msg) { /* ISR 上下文 */ }
+## 开发规范
 
-app_can_init();
-app_can_set_rx_callback(on_msg);
-app_can_add_filter(0x114, 0x7FF);       // 只接收 ID=0x114
-app_can_send(0x114, data, 8);           // 非阻塞发送
-app_can_msg_t msg;
-if (app_can_receive(&msg) == 0) { ... } // 轮询接收
-```
-
-### CAN 调试验证
-
-- `app_debug_can_loopback_test()` — 内部回环验证 MCAN 控制器
-- `app_debug_can_run_tests()` — 周期性发送 + RTT 打印接收
-
-## 添加新外设接口
-
-1. **Interface**: 创建 `intf_xxx.h`，定义 `intf_xxx_ops_t` 和 `intf_xxx_register()`
-2. **Interface**: 在 `intf_default.c` 中添加桩实现
-3. **Driver**: 创建 `drv_xxx.c`，实现 ops 并调用 `intf_xxx_register()`
-4. **Board**: 在 `pinmux.c` 中添加引脚定义
-5. **App**: 在 `main.c` 中调用注册函数
-
-## 可用板级
-
-| 板级 | 说明 |
-|------|------|
-| `user_board` | 自定义板级模板 (默认) |
-| `hpm5301evklite_board` | HPM5301 EVK Lite 官方开发板 |
-
-```bash
-make list-boards
-```
-
-## 许可证
-
-BSD-3-Clause
+- C 语言标准：C17
+- 架构约束：App 层禁止包含 `hpm_*.h`，仅通过 Interface 层访问硬件
+- 编码风格：详见 `AGENTS.md`
+- 分支策略：feature 分支开发，PR 合并

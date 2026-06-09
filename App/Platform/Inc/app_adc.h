@@ -23,12 +23,12 @@
  * ============================================================================ */
 
 typedef enum {
-    ADC_CH_V_IN   = 0,   /* PB14, ch6:  Buck-Boost输入电压  (ADC0) */
-    ADC_CH_I_IN   = 1,   /* PB08, ch11: Buck-Boost输入母线电流 */
-    ADC_CH_I_L    = 2,   /* PB10, ch2:  电感电流 (电流内环)    */
-    ADC_CH_V_LINK = 3,   /* PB11, ch3:  V_LINK 级联电压        */
-    ADC_CH_I_COIL = 4,   /* PB12, ch4:  线圈电流        (ADC1) */
-    ADC_CH_I_LF   = 5,   /* PB13, ch5:  LCC谐振电流            */
+    ADC_CH_V_IN   = 0,   /* PB14, ch6:  Buck-Boost输入电压  (ADC1) */
+    ADC_CH_I_IN   = 1,   /* PB08, ch11: Buck-Boost输入母线电流 (ADC0) */
+    ADC_CH_I_L    = 2,   /* PB10, ch2:  电感电流 (电流内环)   (ADC0) */
+    ADC_CH_V_LINK = 3,   /* PB11, ch3:  V_LINK 级联电压       (ADC0) */
+    ADC_CH_I_COIL = 4,   /* PB12, ch4:  线圈电流              (ADC1) */
+    ADC_CH_I_LF   = 5,   /* PB13, ch5:  LCC谐振电流           (ADC1) */
     ADC_CH_COUNT,
 } adc_channel_t;
 
@@ -47,7 +47,7 @@ typedef enum {
 #define APP_ADC_PMT_ADC0_TRIG_CH        (0U)
 #define APP_ADC_PMT_ADC1_TRIG_CH        (3U)
 #define APP_ADC_PMT_ADC0_CH_COUNT       (4U)
-#define APP_ADC_PMT_ADC1_CH_COUNT       (2U)
+#define APP_ADC_PMT_ADC1_CH_COUNT       (4U)
 #define APP_ADC_PMT_DMA_BUFF_LEN        (48U)
 
 /* ============================================================================

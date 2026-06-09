@@ -13,6 +13,7 @@
 #include "intf_trgm.h"
 
 #include <stddef.h>
+#include <string.h>
 
 /* ============================================================================
  * Channel Mapping
@@ -24,11 +25,11 @@ typedef struct {
 } app_adc_map_t;
 
 /*
- * ADC0 (PWM0): V_IN + I_IN + I_L + V_LINK
- * ADC1 (PWM1): I_COIL + I_LF
+ * ADC0 (PWM0): V_LINK + I_L + I_IN
+ * ADC1 (PWM1): V_IN + I_COIL + I_LF
  */
 static const app_adc_map_t adc_map[ADC_CH_COUNT] = {
-    [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 6},
+    [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_1, .hw_ch = 6},
     [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 11},
     [ADC_CH_I_L]    = {.inst = APP_ADC_INST_0, .hw_ch = 2},
     [ADC_CH_V_LINK] = {.inst = APP_ADC_INST_0, .hw_ch = 3},
@@ -93,14 +94,13 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
     (void)user_data;
 
     static const adc_channel_t hw_to_logic[16] = {
-        [6]  = ADC_CH_V_IN,
         [11] = ADC_CH_I_IN,
         [2]  = ADC_CH_I_L,
         [3]  = ADC_CH_V_LINK,
     };
 
-    for (uint8_t i = 0; i < count && i < 4U; i++) {
-        uint8_t hw_ch = (i == 0) ? 6U : (i == 1) ? 11U : (i == 2) ? 2U : 3U;
+    for (uint8_t i = 1; i < count && i < 4U; i++) {
+        uint8_t hw_ch = (i == 1) ? 3U : (i == 2) ? 2U : 11U;
         if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
             pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
         }
@@ -113,12 +113,13 @@ static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint
     (void)user_data;
 
     static const adc_channel_t hw_to_logic[16] = {
+        [6] = ADC_CH_V_IN,
         [4] = ADC_CH_I_COIL,
         [5] = ADC_CH_I_LF,
     };
 
-    for (uint8_t i = 0; i < count && i < 2U; i++) {
-        uint8_t hw_ch = (i == 0) ? 4U : 5U;
+    for (uint8_t i = 1; i < count && i < 4U; i++) {
+        uint8_t hw_ch = (i == 1) ? 6U : (i == 2) ? 4U : 5U;
         if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
             pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
         }
@@ -143,8 +144,9 @@ void app_adc_init(void)
      *            signal reaches the ADC inputs.
      * ================================================================ */
 
-    /* ADC0 PMT — 4 channels (V_IN, I_IN, I_L, V_LINK) on trig_ch=0 */
+    /* ADC0 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=0 */
     {
+        memset(pmt_dma0, 0, sizeof(pmt_dma0));
         intf_adc_cfg_t cfg = {
             .resolution       = INTF_ADC_RES_DEFAULT,
             .mode             = INTF_ADC_MODE_PMT,
@@ -159,15 +161,16 @@ void app_adc_init(void)
             .pmt_cb           = app_adc_pmt_cb_adc0,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 6U;
-        cfg.pmt_ch_list[1] = 11U;
+        cfg.pmt_ch_list[0] = 15U;
+        cfg.pmt_ch_list[1] = 3U;
         cfg.pmt_ch_list[2] = 2U;
-        cfg.pmt_ch_list[3] = 3U;
+        cfg.pmt_ch_list[3] = 11U;
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_0, 0), &cfg);
     }
 
-    /* ADC1 PMT — 2 channels (I_COIL, I_LF) on trig_ch=3 */
+    /* ADC1 PMT — 4 channels (dummy, V_IN, I_COIL, I_LF) on trig_ch=3 */
     {
+        memset(pmt_dma1, 0, sizeof(pmt_dma1));
         intf_adc_cfg_t cfg = {
             .resolution       = INTF_ADC_RES_DEFAULT,
             .mode             = INTF_ADC_MODE_PMT,
@@ -182,8 +185,10 @@ void app_adc_init(void)
             .pmt_cb           = app_adc_pmt_cb_adc1,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 4U;
-        cfg.pmt_ch_list[1] = 5U;
+        cfg.pmt_ch_list[0] = 15U;
+        cfg.pmt_ch_list[1] = 6U;
+        cfg.pmt_ch_list[2] = 4U;
+        cfg.pmt_ch_list[3] = 5U;
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_1, 0), &cfg);
     }
 
