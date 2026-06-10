@@ -6,6 +6,7 @@
  */
 
 #include "app_adc.h"
+#include "app_analog_signal.h"
 #include "app_hrpwm.h"
 
 #include "intf_adc.h"
@@ -103,6 +104,7 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
         uint8_t hw_ch = (i == 1) ? 3U : (i == 2) ? 2U : 11U;
         if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
             pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
+            app_analog_signal_update_raw(hw_to_logic[hw_ch], values[i]);
         }
     }
 }
@@ -122,6 +124,7 @@ static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint
         uint8_t hw_ch = (i == 1) ? 6U : (i == 2) ? 4U : 5U;
         if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
             pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
+            app_analog_signal_update_raw(hw_to_logic[hw_ch], values[i]);
         }
     }
 }

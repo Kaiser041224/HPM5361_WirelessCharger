@@ -47,7 +47,7 @@ LAST_BUILD_LOG := $(BUILD_DIR)/last_build.log
 # Usage: make build OPT_LEVEL_DBG=-Og OPT_LEVEL_REL=-Ofast
 # Debug:  -O0 (default, best debugging experience)
 # Release: -O3 (default, maximum speed)
-OPT_LEVEL_DBG ?= -O0
+OPT_LEVEL_DBG ?= -Og
 OPT_LEVEL_REL ?= -O3
 
 ifneq ($(origin OPT_LEVEL), undefined)

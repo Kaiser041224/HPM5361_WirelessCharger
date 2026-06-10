@@ -19,10 +19,11 @@
 #define APP_ANALOG_SIGNAL_INA240A2_GAIN        (50.0f)
 #define APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V \
     (1.0f / (APP_ANALOG_SIGNAL_INA240A2_RSENSE_OHM * APP_ANALOG_SIGNAL_INA240A2_GAIN))
-#define APP_ANALOG_SIGNAL_CT_BURDEN_OHM        (5.1f)
-#define APP_ANALOG_SIGNAL_CT_RATIO             (100.0f)
-#define APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V      (APP_ANALOG_SIGNAL_CT_RATIO / APP_ANALOG_SIGNAL_CT_BURDEN_OHM)
-#define APP_ANALOG_SIGNAL_BIDIR_BIAS_MV        (INTF_ADC_DEFAULT_VREF_MV * 0.5f)
+#define APP_ANALOG_SIGNAL_CT_BURDEN_OHM (5.1f)
+#define APP_ANALOG_SIGNAL_CT_RATIO      (100.0f)
+#define APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V \
+    (APP_ANALOG_SIGNAL_CT_RATIO / APP_ANALOG_SIGNAL_CT_BURDEN_OHM)
+#define APP_ANALOG_SIGNAL_BIDIR_BIAS_MV (INTF_ADC_DEFAULT_VREF_MV * 0.5f)
 
 #define APP_ANALOG_SIGNAL_FILTER_MA_MAX_WINDOW (8U)
 #define APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS  (16U)
@@ -46,7 +47,7 @@ typedef struct {
             float sample_rate_hz;
         } lpf;
         struct {
-            const float *coeffs;
+            const float* coeffs;
             uint16_t num_taps;
         } fir;
         struct {
@@ -58,18 +59,6 @@ typedef struct {
 /* ============================================================================
  * Default Configuration
  * ============================================================================ */
-
-static const float s_default_fir_soft_5tap[5] = {
-    0.1000f, 0.2000f, 0.4000f, 0.2000f, 0.1000f,
-};
-
-static const algo_biquad_coeffs_t s_default_biquad_soft = {
-    .b0 = 0.06745527f,
-    .b1 = 0.13491055f,
-    .b2 = 0.06745527f,
-    .a1 = -1.14298046f,
-    .a2 = 0.41280156f,
-};
 
 static const adc_channel_t s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
     [APP_ANALOG_SIGNAL_ITEM_V_IN] = ADC_CH_V_IN,
@@ -90,82 +79,85 @@ static const app_analog_signal_item_t s_channel_to_item[ADC_CH_COUNT] = {
 };
 
 static const app_adc_calibration_t s_default_calibration[ADC_CH_COUNT] = {
-    [ADC_CH_V_IN] = {
-        .sense_gain = 1.0f,
-        .sense_offset_mv = 0.0f,
-        .physical_gain = 0.001f * APP_ANALOG_SIGNAL_VOLTAGE_DIVIDER_GAIN,
-        .physical_offset = 0.0f,
-    },
-    [ADC_CH_I_IN] = {
-        .sense_gain = 1.0f,
-        .sense_offset_mv = 0.0f,
-        .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
-        .physical_offset = -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
-    },
-    [ADC_CH_I_L] = {
-        .sense_gain = 1.0f,
-        .sense_offset_mv = 0.0f,
-        .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
-        .physical_offset = -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
-    },
-    [ADC_CH_V_LINK] = {
-        .sense_gain = 1.0f,
-        .sense_offset_mv = 0.0f,
-        .physical_gain = 0.001f * APP_ANALOG_SIGNAL_VOLTAGE_DIVIDER_GAIN,
-        .physical_offset = 0.0f,
-    },
-    [ADC_CH_I_COIL] = {
-        .sense_gain = 1.0f,
-        .sense_offset_mv = 0.0f,
-        .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
-        .physical_offset = -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
-    },
-    [ADC_CH_I_LF] = {
-        .sense_gain = 1.0f,
-        .sense_offset_mv = 0.0f,
-        .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
-        .physical_offset = -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
-    },
+    [ADC_CH_V_IN] =
+        {
+                       .sense_gain = 1.0f,
+                       .sense_offset_mv = 0.0f,
+                       .physical_gain = 0.001f * APP_ANALOG_SIGNAL_VOLTAGE_DIVIDER_GAIN,
+                       .physical_offset = 0.0f,
+                       },
+    [ADC_CH_I_IN] =
+        {
+                       .sense_gain = 1.0f,
+                       .sense_offset_mv = 0.0f,
+                       .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
+                       .physical_offset =
+                       -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
+                       },
+    [ADC_CH_I_L] =
+        {
+                       .sense_gain = 1.0f,
+                       .sense_offset_mv = 0.0f,
+                       .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
+                       .physical_offset =
+                       -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V,
+                       },
+    [ADC_CH_V_LINK] =
+        {
+                       .sense_gain = 1.0f,
+                       .sense_offset_mv = 0.0f,
+                       .physical_gain = 0.001f * APP_ANALOG_SIGNAL_VOLTAGE_DIVIDER_GAIN,
+                       .physical_offset = 0.0f,
+                       },
+    [ADC_CH_I_COIL] =
+        {
+                       .sense_gain = 1.0f,
+                       .sense_offset_mv = 0.0f,
+                       .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
+                       .physical_offset =
+                       -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
+                       },
+    [ADC_CH_I_LF] =
+        {
+                       .sense_gain = 1.0f,
+                       .sense_offset_mv = 0.0f,
+                       .physical_gain = 0.001f * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
+                       .physical_offset =
+                       -0.001f * APP_ANALOG_SIGNAL_BIDIR_BIAS_MV * APP_ANALOG_SIGNAL_CT_GAIN_A_PER_V,
+                       },
 };
 
 static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] = {
-    [ADC_CH_V_IN] = {
-        .type = APP_ANALOG_SIGNAL_FILTER_MA,
-        .cfg.ma = {
-            .window_size = 8U,
-        },
-    },
-    [ADC_CH_I_IN] = {
-        .type = APP_ANALOG_SIGNAL_FILTER_MA,
-        .cfg.ma = {
-            .window_size = 4U,
-        },
-    },
-    [ADC_CH_I_L] = {
-        .type = APP_ANALOG_SIGNAL_FILTER_MA,
-        .cfg.ma = {
-            .window_size = 4U,
-        },
-    },
-    [ADC_CH_V_LINK] = {
-        .type = APP_ANALOG_SIGNAL_FILTER_FIR,
-        .cfg.fir = {
-            .coeffs = s_default_fir_soft_5tap,
-            .num_taps = 5U,
-        },
-    },
-    [ADC_CH_I_COIL] = {
-        .type = APP_ANALOG_SIGNAL_FILTER_MA,
-        .cfg.ma = {
-            .window_size = 4U,
-        },
-    },
-    [ADC_CH_I_LF] = {
-        .type = APP_ANALOG_SIGNAL_FILTER_BIQUAD,
-        .cfg.biquad = {
-            .coeffs = s_default_biquad_soft,
-        },
-    },
+    [ADC_CH_V_IN] =
+        {
+                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
+                       .cfg.ma = {.window_size = 4U},
+                       },
+    [ADC_CH_I_IN] =
+        {
+                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
+                       .cfg.ma = {.window_size = 4U},
+                       },
+    [ADC_CH_I_L] =
+        {
+                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
+                       .cfg.ma = {.window_size = 4U},
+                       },
+    [ADC_CH_V_LINK] =
+        {
+                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
+                       .cfg.ma = {.window_size = 4U},
+                       },
+    [ADC_CH_I_COIL] =
+        {
+                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
+                       .cfg.ma = {.window_size = 4U},
+                       },
+    [ADC_CH_I_LF] =
+        {
+                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
+                       .cfg.ma = {.window_size = 4U},
+                       },
 };
 
 /* ============================================================================
@@ -177,8 +169,10 @@ static algo_lpf_t s_lpf_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_fir_t s_fir_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_biquad_t s_biquad_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 
-static float s_ma_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT][APP_ANALOG_SIGNAL_FILTER_MA_MAX_WINDOW];
-static float s_fir_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT][APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS];
+static float s_ma_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
+                                [APP_ANALOG_SIGNAL_FILTER_MA_MAX_WINDOW];
+static float s_fir_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
+                                 [APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS];
 
 static uint16_t s_raw_cache[ADC_CH_COUNT];
 static bool s_raw_cache_valid[ADC_CH_COUNT];
@@ -187,6 +181,8 @@ static float s_filtered_cache[ADC_CH_COUNT];
 static bool s_filtered_cache_valid[ADC_CH_COUNT];
 
 static bool s_initialized;
+
+app_analog_signal_snapshot_t g_analog_signal_snapshot;
 
 /* ============================================================================
  * Private Helpers
@@ -199,8 +195,7 @@ static bool s_initialized;
  * @return true 有效。
  * @return false 无效。
  */
-static bool app_analog_signal_item_is_valid(app_analog_signal_item_t item)
-{
+static bool app_analog_signal_item_is_valid(app_analog_signal_item_t item) {
     return item < APP_ANALOG_SIGNAL_ITEM_COUNT;
 }
 
@@ -210,8 +205,7 @@ static bool app_analog_signal_item_is_valid(app_analog_signal_item_t item)
  * @param ch ADC 通道。
  * @return 对应滤波配置指针。
  */
-static const app_analog_signal_filter_cfg_t *app_analog_signal_filter_cfg(adc_channel_t ch)
-{
+static const app_analog_signal_filter_cfg_t* app_analog_signal_filter_cfg(adc_channel_t ch) {
     return &s_default_filter_cfg[ch];
 }
 
@@ -221,13 +215,12 @@ static const app_analog_signal_filter_cfg_t *app_analog_signal_filter_cfg(adc_ch
  * @param raw    原始 ADC 结果。
  * @param adc_mv 输出 ADC 引脚电压，单位 mV。
  */
-static void app_analog_signal_raw_to_adc_voltage_mv(uint16_t raw, float *adc_mv)
-{
+static void app_analog_signal_raw_to_adc_voltage_mv(uint16_t raw, float* adc_mv) {
     if (adc_mv == NULL) {
         return;
     }
 
-    *adc_mv = (float) raw * INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
+    *adc_mv = (float)raw * INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
 }
 
 /**
@@ -237,8 +230,7 @@ static void app_analog_signal_raw_to_adc_voltage_mv(uint16_t raw, float *adc_mv)
  * @param value 输出真实物理量。
  * @return 0 成功，-1 失败。
  */
-static int app_analog_signal_read_item_from_cache(adc_channel_t ch, float *value)
-{
+static int app_analog_signal_read_item_from_cache(adc_channel_t ch, float* value) {
     if (ch >= ADC_CH_COUNT || value == NULL || !s_raw_cache_valid[ch]) {
         return -1;
     }
@@ -254,8 +246,8 @@ static int app_analog_signal_read_item_from_cache(adc_channel_t ch, float *value
  * @param cfg  滤波配置。
  * @return 0 成功，-1 参数非法。
  */
-static int app_analog_signal_filter_init_ma(app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t *cfg)
-{
+static int app_analog_signal_filter_init_ma(
+    app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t* cfg) {
     algo_ma_cfg_t ma_cfg = {
         .window_size = cfg->cfg.ma.window_size,
         .buffer = s_ma_filter_buffers[item],
@@ -276,8 +268,8 @@ static int app_analog_signal_filter_init_ma(app_analog_signal_item_t item, const
  * @param cfg  滤波配置。
  * @return 0 成功，其他为算法库错误码。
  */
-static int app_analog_signal_filter_init_lpf(app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t *cfg)
-{
+static int app_analog_signal_filter_init_lpf(
+    app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t* cfg) {
     algo_lpf_cfg_t lpf_cfg = {
         .cutoff_hz = cfg->cfg.lpf.cutoff_hz,
         .sample_rate_hz = cfg->cfg.lpf.sample_rate_hz,
@@ -294,8 +286,8 @@ static int app_analog_signal_filter_init_lpf(app_analog_signal_item_t item, cons
  * @param cfg  滤波配置。
  * @return 0 成功，-1 参数非法。
  */
-static int app_analog_signal_filter_init_fir(app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t *cfg)
-{
+static int app_analog_signal_filter_init_fir(
+    app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t* cfg) {
     algo_fir_cfg_t fir_cfg = {
         .coeffs = cfg->cfg.fir.coeffs,
         .num_taps = cfg->cfg.fir.num_taps,
@@ -303,7 +295,8 @@ static int app_analog_signal_filter_init_fir(app_analog_signal_item_t item, cons
     };
 
     algo_fir_ctor(&s_fir_filters[item]);
-    if (fir_cfg.coeffs == NULL || fir_cfg.num_taps == 0U || fir_cfg.num_taps > APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS) {
+    if (fir_cfg.coeffs == NULL || fir_cfg.num_taps == 0U
+        || fir_cfg.num_taps > APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS) {
         return -1;
     }
 
@@ -317,8 +310,8 @@ static int app_analog_signal_filter_init_fir(app_analog_signal_item_t item, cons
  * @param cfg  滤波配置。
  * @return 0 成功，其他为算法库错误码。
  */
-static int app_analog_signal_filter_init_biquad(app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t *cfg)
-{
+static int app_analog_signal_filter_init_biquad(
+    app_analog_signal_item_t item, const app_analog_signal_filter_cfg_t* cfg) {
     algo_biquad_cfg_t biquad_cfg = {
         .coeffs = cfg->cfg.biquad.coeffs,
     };
@@ -332,27 +325,19 @@ static int app_analog_signal_filter_init_biquad(app_analog_signal_item_t item, c
  *
  * @param item 目标模拟量项。
  */
-static void app_analog_signal_filter_init_item(app_analog_signal_item_t item)
-{
-    const app_analog_signal_filter_cfg_t *cfg = app_analog_signal_filter_cfg(s_item_to_channel[item]);
+static void app_analog_signal_filter_init_item(app_analog_signal_item_t item) {
+    const app_analog_signal_filter_cfg_t* cfg =
+        app_analog_signal_filter_cfg(s_item_to_channel[item]);
 
     switch (cfg->type) {
-    case APP_ANALOG_SIGNAL_FILTER_NONE:
-        break;
-    case APP_ANALOG_SIGNAL_FILTER_MA:
-        (void)app_analog_signal_filter_init_ma(item, cfg);
-        break;
-    case APP_ANALOG_SIGNAL_FILTER_LPF:
-        (void)app_analog_signal_filter_init_lpf(item, cfg);
-        break;
-    case APP_ANALOG_SIGNAL_FILTER_FIR:
-        (void)app_analog_signal_filter_init_fir(item, cfg);
-        break;
+    case APP_ANALOG_SIGNAL_FILTER_NONE: break;
+    case APP_ANALOG_SIGNAL_FILTER_MA: (void)app_analog_signal_filter_init_ma(item, cfg); break;
+    case APP_ANALOG_SIGNAL_FILTER_LPF: (void)app_analog_signal_filter_init_lpf(item, cfg); break;
+    case APP_ANALOG_SIGNAL_FILTER_FIR: (void)app_analog_signal_filter_init_fir(item, cfg); break;
     case APP_ANALOG_SIGNAL_FILTER_BIQUAD:
         (void)app_analog_signal_filter_init_biquad(item, cfg);
         break;
-    default:
-        break;
+    default: break;
     }
 }
 
@@ -363,23 +348,18 @@ static void app_analog_signal_filter_init_item(app_analog_signal_item_t item)
  * @param value 原始物理量。
  * @return 滤波后的物理量。
  */
-static float app_analog_signal_filter_step(app_analog_signal_item_t item, float value)
-{
-    const app_analog_signal_filter_cfg_t *cfg = app_analog_signal_filter_cfg(s_item_to_channel[item]);
+static float app_analog_signal_filter_step(app_analog_signal_item_t item, float value) {
+    const app_analog_signal_filter_cfg_t* cfg =
+        app_analog_signal_filter_cfg(s_item_to_channel[item]);
 
     switch (cfg->type) {
-    case APP_ANALOG_SIGNAL_FILTER_NONE:
-        return value;
-    case APP_ANALOG_SIGNAL_FILTER_MA:
-        return s_ma_filters[item].step(&s_ma_filters[item], value);
-    case APP_ANALOG_SIGNAL_FILTER_LPF:
-        return s_lpf_filters[item].step(&s_lpf_filters[item], value);
-    case APP_ANALOG_SIGNAL_FILTER_FIR:
-        return s_fir_filters[item].step(&s_fir_filters[item], value);
+    case APP_ANALOG_SIGNAL_FILTER_NONE: return value;
+    case APP_ANALOG_SIGNAL_FILTER_MA: return s_ma_filters[item].step(&s_ma_filters[item], value);
+    case APP_ANALOG_SIGNAL_FILTER_LPF: return s_lpf_filters[item].step(&s_lpf_filters[item], value);
+    case APP_ANALOG_SIGNAL_FILTER_FIR: return s_fir_filters[item].step(&s_fir_filters[item], value);
     case APP_ANALOG_SIGNAL_FILTER_BIQUAD:
         return s_biquad_filters[item].step(&s_biquad_filters[item], value);
-    default:
-        return value;
+    default: return value;
     }
 }
 
@@ -390,8 +370,7 @@ static float app_analog_signal_filter_step(app_analog_signal_item_t item, float 
  * @param value 输出物理量。
  * @return 0 成功，-1 失败。
  */
-static int app_analog_signal_read_item_raw(app_analog_signal_item_t item, float *value)
-{
+static int app_analog_signal_read_item_raw(app_analog_signal_item_t item, float* value) {
     adc_channel_t ch;
 
     if (!app_analog_signal_item_is_valid(item) || value == NULL) {
@@ -418,31 +397,35 @@ static int app_analog_signal_read_item_raw(app_analog_signal_item_t item, float 
  * @param mode         读取模式：原始值或滤波值。
  * @return 0 成功，-1 任一路失败。
  */
-static int app_analog_signal_read_measurements_internal(app_analog_signal_measurements_t *measurements,
-                                                        app_analog_signal_value_mode_t mode)
-{
+static int app_analog_signal_read_measurements_internal(
+    app_analog_signal_measurements_t* measurements, app_analog_signal_value_mode_t mode) {
     if (measurements == NULL) {
         return -1;
     }
 
-    *measurements = (app_analog_signal_measurements_t) {0};
+    *measurements = (app_analog_signal_measurements_t){0};
 
-    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_V_IN, mode, &measurements->v_in_v) != 0) {
+    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_V_IN, mode, &measurements->v_in_v)
+        != 0) {
         return -1;
     }
-    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_IN, mode, &measurements->i_in_a) != 0) {
+    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_IN, mode, &measurements->i_in_a)
+        != 0) {
         return -1;
     }
     if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_L, mode, &measurements->i_l_a) != 0) {
         return -1;
     }
-    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_V_LINK, mode, &measurements->v_link_v) != 0) {
+    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_V_LINK, mode, &measurements->v_link_v)
+        != 0) {
         return -1;
     }
-    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_COIL, mode, &measurements->i_coil_a) != 0) {
+    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_COIL, mode, &measurements->i_coil_a)
+        != 0) {
         return -1;
     }
-    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_LF, mode, &measurements->i_lf_a) != 0) {
+    if (app_analog_signal_read_item(APP_ANALOG_SIGNAL_ITEM_I_LF, mode, &measurements->i_lf_a)
+        != 0) {
         return -1;
     }
 
@@ -456,15 +439,26 @@ static int app_analog_signal_read_measurements_internal(app_analog_signal_measur
 /**
  * @brief 装载默认 ADC 标定参数。
  */
-void app_analog_signal_load_default_calibration(void)
-{
+void app_analog_signal_load_default_calibration(void) {
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
         app_adc_set_calibration(ch, &s_default_calibration[ch]);
     }
 }
 
-void app_analog_signal_update_raw(adc_channel_t ch, uint16_t raw)
-{
+static float*
+    snapshot_field_ptr(app_analog_signal_measurements_t* m, app_analog_signal_item_t item) {
+    switch (item) {
+    case APP_ANALOG_SIGNAL_ITEM_V_IN: return &m->v_in_v;
+    case APP_ANALOG_SIGNAL_ITEM_I_IN: return &m->i_in_a;
+    case APP_ANALOG_SIGNAL_ITEM_I_L: return &m->i_l_a;
+    case APP_ANALOG_SIGNAL_ITEM_V_LINK: return &m->v_link_v;
+    case APP_ANALOG_SIGNAL_ITEM_I_COIL: return &m->i_coil_a;
+    case APP_ANALOG_SIGNAL_ITEM_I_LF: return &m->i_lf_a;
+    default: return NULL;
+    }
+}
+
+void app_analog_signal_update_raw(adc_channel_t ch, uint16_t raw) {
     float adc_mv;
     float sense_mv;
     float physical;
@@ -477,24 +471,62 @@ void app_analog_signal_update_raw(adc_channel_t ch, uint16_t raw)
     s_raw_cache_valid[ch] = true;
 
     app_analog_signal_raw_to_adc_voltage_mv(raw, &adc_mv);
-    sense_mv = adc_mv * s_default_calibration[ch].sense_gain
-               + s_default_calibration[ch].sense_offset_mv;
+    sense_mv =
+        adc_mv * s_default_calibration[ch].sense_gain + s_default_calibration[ch].sense_offset_mv;
     physical = sense_mv * s_default_calibration[ch].physical_gain
-               + s_default_calibration[ch].physical_offset;
+             + s_default_calibration[ch].physical_offset;
     s_physical_cache[ch] = physical;
 
-    s_filtered_cache[ch] = app_analog_signal_filter_step(s_channel_to_item[ch], physical);
+    app_analog_signal_item_t item = s_channel_to_item[ch];
+    float* raw_field = snapshot_field_ptr(&g_analog_signal_snapshot.raw, item);
+    if (raw_field) {
+        *raw_field = physical;
+    }
+
+    if (!s_initialized) {
+        return;
+    }
+
+    s_filtered_cache[ch] = app_analog_signal_filter_step(item, physical);
     s_filtered_cache_valid[ch] = true;
+
+    float* flt_field = snapshot_field_ptr(&g_analog_signal_snapshot.filtered, item);
+    if (flt_field) {
+        *flt_field = s_filtered_cache[ch];
+    }
 }
 
-int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t *raw)
-{
+int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t* raw) {
     if (ch >= ADC_CH_COUNT || raw == NULL || !s_raw_cache_valid[ch]) {
         return -1;
     }
 
     *raw = s_raw_cache[ch];
     return 0;
+}
+
+void app_analog_signal_process(void) {
+    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
+        uint16_t raw;
+        if (app_adc_get_pmt_raw(ch, &raw) == 0) {
+            app_analog_signal_update_raw(ch, raw);
+        }
+    }
+}
+
+void app_analog_signal_snapshot_refresh_raw(void) {
+    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
+        uint16_t raw;
+        if (app_adc_get_pmt_raw(ch, &raw) == 0) {
+            float adc_mv = (float)raw * INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
+            float sense_mv = adc_mv * s_default_calibration[ch].sense_gain
+                           + s_default_calibration[ch].sense_offset_mv;
+            float physical = sense_mv * s_default_calibration[ch].physical_gain
+                           + s_default_calibration[ch].physical_offset;
+            app_analog_signal_item_t item = s_channel_to_item[ch];
+            *snapshot_field_ptr(&g_analog_signal_snapshot.raw, item) = physical;
+        }
+    }
 }
 
 /**
@@ -505,15 +537,15 @@ int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t *raw)
  * @note ADC 采样模式初始化由 `app_adc_init()` 负责。
  *       本模块只消费原始结果并完成物理量换算与滤波。
  */
-void app_analog_signal_init(void)
-{
+void app_analog_signal_init(void) {
     if (s_initialized) {
         return;
     }
 
     app_analog_signal_load_default_calibration();
 
-    for (app_analog_signal_item_t item = APP_ANALOG_SIGNAL_ITEM_V_IN; item < APP_ANALOG_SIGNAL_ITEM_COUNT; item++) {
+    for (app_analog_signal_item_t item = APP_ANALOG_SIGNAL_ITEM_V_IN;
+         item < APP_ANALOG_SIGNAL_ITEM_COUNT; item++) {
         app_analog_signal_filter_init_item(item);
     }
 
@@ -528,8 +560,8 @@ void app_analog_signal_init(void)
  * @param value 输出物理量。
  * @return 0 成功，-1 失败。
  */
-int app_analog_signal_read_item(app_analog_signal_item_t item, app_analog_signal_value_mode_t mode, float *value)
-{
+int app_analog_signal_read_item(
+    app_analog_signal_item_t item, app_analog_signal_value_mode_t mode, float* value) {
     if (!app_analog_signal_item_is_valid(item) || value == NULL) {
         return -1;
     }
@@ -558,9 +590,8 @@ int app_analog_signal_read_item(app_analog_signal_item_t item, app_analog_signal
  * @param mode         读取模式：原始值或滤波值。
  * @return 0 成功，-1 失败。
  */
-int app_analog_signal_get_measurements(app_analog_signal_measurements_t *measurements,
-                                       app_analog_signal_value_mode_t mode)
-{
+int app_analog_signal_get_measurements(
+    app_analog_signal_measurements_t* measurements, app_analog_signal_value_mode_t mode) {
     return app_analog_signal_read_measurements_internal(measurements, mode);
 }
 
@@ -571,8 +602,8 @@ int app_analog_signal_get_measurements(app_analog_signal_measurements_t *measure
  * @param calibration 标定参数。
  * @return 0 成功，-1 失败。
  */
-int app_analog_signal_set_channel_calibration(adc_channel_t ch, const app_adc_calibration_t *calibration)
-{
+int app_analog_signal_set_channel_calibration(
+    adc_channel_t ch, const app_adc_calibration_t* calibration) {
     if (ch >= ADC_CH_COUNT || calibration == NULL) {
         return -1;
     }
@@ -588,7 +619,7 @@ int app_analog_signal_set_channel_calibration(adc_channel_t ch, const app_adc_ca
  * @param calibration 输出标定参数。
  * @return 0 成功，-1 失败。
  */
-int app_analog_signal_get_channel_calibration(adc_channel_t ch, app_adc_calibration_t *calibration)
-{
+int app_analog_signal_get_channel_calibration(
+    adc_channel_t ch, app_adc_calibration_t* calibration) {
     return app_adc_get_calibration(ch, calibration);
 }

@@ -49,7 +49,7 @@ typedef enum {
 #define INTF_ADC_RES_DEFAULT INTF_ADC_RES_16_BITS
 
 /* Configurable defaults (0 in cfg = use these values) */
-#define INTF_ADC_DEFAULT_SAMPLE_CYCLE (21U)
+#define INTF_ADC_DEFAULT_SAMPLE_CYCLE (25U)
 #define INTF_ADC_DEFAULT_CLOCK_DIV    (3U) /* 120/3 = 40 MHz ≤ 50 MHz */
 #define INTF_ADC_DEFAULT_VREF_MV      (3300.0f)
 

@@ -53,6 +53,13 @@ typedef struct {
     float i_lf_a;
 } app_analog_signal_measurements_t;
 
+typedef struct {
+    app_analog_signal_measurements_t raw;
+    app_analog_signal_measurements_t filtered;
+} app_analog_signal_snapshot_t;
+
+extern app_analog_signal_snapshot_t g_analog_signal_snapshot;
+
 /**
  * @brief 初始化模拟量调理模块。
  *
@@ -75,6 +82,20 @@ void app_analog_signal_load_default_calibration(void);
  * @param raw 原始 16-bit ADC 结果。
  */
 void app_analog_signal_update_raw(adc_channel_t ch, uint16_t raw);
+
+/**
+ * @brief 从 PMT 缓存拉取全部通道原始值并完成物理量换算 + 滤波。
+ *
+ * 应在主循环中周期调用，禁止在 ISR 中调用。
+ */
+void app_analog_signal_process(void);
+
+/**
+ * @brief 从 PMT 缓存直接刷新快照中的 raw 值（不做滤波）。
+ *
+ * 轻量级，可在调试 dump 中高频调用。
+ */
+void app_analog_signal_snapshot_refresh_raw(void);
 
 int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t *raw);
 
