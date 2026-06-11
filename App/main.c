@@ -13,6 +13,6 @@ int main(void) {
     while (1) {
         app_debug_run_once();
 
-        intf_clock_delay_ms(500);
+        intf_clock_delay_ms(50);
     }
 }

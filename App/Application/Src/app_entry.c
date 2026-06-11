@@ -21,12 +21,12 @@ void app_init(void) {
     app_gpio_init();
     app_gpio_set(PIN_DRVPWR, false);
 
-    hrpwm_init();                /* PWM configured, NOT started (quiet for ADC cal) */
+    app_hrpwm_init();            /* PWM configured, NOT started (quiet for ADC cal) */
     app_adc_init();              /* ADC calibration + PMT setup in quiet environment */
 
     app_analog_signal_init();    /* Filters ready BEFORE PWM triggers ADC interrupts */
 
-    hrpwm_start_all();           /* PWM starts — PMT callbacks now safe to update filters */
+    app_hrpwm_start_all();       /* PWM starts — PMT callbacks now safe to update filters */
     app_buzzer_init();
     app_ws2812_init();
 

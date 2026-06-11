@@ -1,7 +1,7 @@
 /*
  * ctrl_buckboost.h — 四开关 Buck-Boost 控制器
  *
- * 面向 PWM0 pair 0/1 的四开关拓扑，封装：
+ * 面向 PWM1 pair 0/1 的四开关拓扑，封装：
  *   - 内外双环 (I_L 电流内环 + V_OUT 电压外环)
  *   - 软启动斜坡
  *   - 模式切换 (Buck / Boost / Buck-Boost)

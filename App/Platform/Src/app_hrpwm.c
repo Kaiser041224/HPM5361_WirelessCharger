@@ -24,7 +24,7 @@ static bool hrpwm_inst_is_valid(hrpwm_inst_t inst) { return inst < HRPWM_INST_CO
 
 static intf_hrpwm_ch_t hrpwm_pair_channel(hrpwm_pair_t pair) { return pair_to_ch[pair]; }
 
-void hrpwm_init(void) {
+void app_hrpwm_init(void) {
     hpm_hrpwm_driver_register();
 
     intf_hrpwm_pair_cfg_t cfg[HRPWM_PAIR_COUNT] = {
@@ -68,35 +68,35 @@ void hrpwm_init(void) {
     }
 }
 
-void hrpwm_set_duty(hrpwm_pair_t pair, float duty) {
+void app_hrpwm_set_duty(hrpwm_pair_t pair, float duty) {
     if (!hrpwm_pair_is_valid(pair))
         return;
 
     (void)intf_hrpwm_set_duty(hrpwm_pair_channel(pair), duty);
 }
 
-void hrpwm_set_frequency(hrpwm_inst_t inst, uint32_t freq_hz) {
+void app_hrpwm_set_frequency(hrpwm_inst_t inst, uint32_t freq_hz) {
     if (!hrpwm_inst_is_valid(inst))
         return;
 
     (void)intf_hrpwm_set_frequency(inst, freq_hz);
 }
 
-void hrpwm_set_jitter(hrpwm_pair_t pair, uint8_t jitter_cmp) {
+void app_hrpwm_set_jitter(hrpwm_pair_t pair, uint8_t jitter_cmp) {
     if (!hrpwm_pair_is_valid(pair))
         return;
 
     (void)intf_hrpwm_set_jitter(hrpwm_pair_channel(pair), jitter_cmp);
 }
 
-void hrpwm_start(hrpwm_pair_t pair) {
+void app_hrpwm_start(hrpwm_pair_t pair) {
     if (!hrpwm_pair_is_valid(pair))
         return;
 
     (void)intf_hrpwm_start(hrpwm_pair_channel(pair));
 }
 
-void hrpwm_stop(hrpwm_pair_t pair) {
+void app_hrpwm_stop(hrpwm_pair_t pair) {
     if (!hrpwm_pair_is_valid(pair))
         return;
 
@@ -104,19 +104,19 @@ void hrpwm_stop(hrpwm_pair_t pair) {
     (void)intf_hrpwm_stop((intf_hrpwm_ch_t)(hrpwm_pair_channel(pair) + 1U));
 }
 
-void hrpwm_stop_all(void) {
+void app_hrpwm_stop_all(void) {
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
-        hrpwm_stop(pair);
+        app_hrpwm_stop(pair);
     }
 }
 
-void hrpwm_start_all(void) {
+void app_hrpwm_start_all(void) {
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
-        hrpwm_start(pair);
+        app_hrpwm_start(pair);
     }
 }
 
-void hrpwm_force_low(hrpwm_pair_t pair) {
+void app_hrpwm_force_low(hrpwm_pair_t pair) {
     if (!hrpwm_pair_is_valid(pair))
         return;
 
@@ -124,7 +124,7 @@ void hrpwm_force_low(hrpwm_pair_t pair) {
     (void)intf_hrpwm_force_low((intf_hrpwm_ch_t)(hrpwm_pair_channel(pair) + 1U));
 }
 
-void hrpwm_force_release(hrpwm_pair_t pair) {
+void app_hrpwm_force_release(hrpwm_pair_t pair) {
     if (!hrpwm_pair_is_valid(pair))
         return;
 
@@ -132,15 +132,15 @@ void hrpwm_force_release(hrpwm_pair_t pair) {
     (void)intf_hrpwm_force_release((intf_hrpwm_ch_t)(hrpwm_pair_channel(pair) + 1U));
 }
 
-void hrpwm_emergency_stop(void) {
+void app_hrpwm_emergency_stop(void) {
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
-        hrpwm_force_low(pair);
+        app_hrpwm_force_low(pair);
     }
 }
 
-void hrpwm_resume(void) {
+void app_hrpwm_resume(void) {
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
-        hrpwm_force_release(pair);
+        app_hrpwm_force_release(pair);
     }
 }
 
@@ -161,7 +161,7 @@ void app_hrpwm_clear_fault(void) {
     (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)HRPWM_INST_1);
 }
 
-void hrpwm_set_phase(hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
+void app_hrpwm_set_phase(hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
     intf_hrpwm_phase_cfg_t cfg = {
         .inst = inst,
         .ref_pair = ref_pair,
@@ -171,7 +171,7 @@ void hrpwm_set_phase(hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, f
     (void)intf_hrpwm_set_phase(&cfg);
 }
 
-void hrpwm_config_phase_limit(
+void app_hrpwm_config_phase_limit(
     hrpwm_inst_t inst, float max_phase_deg, float max_duty_ref, float max_duty_target) {
     (void)inst;
     (void)max_phase_deg;

@@ -102,7 +102,7 @@ void app_control_init(void)
 {
     ctrl_fault_init(NULL);
     /*
-     * 硬件初始化由 Platform 层 hrpwm_init() 完成（频率、死区、对齐）。
+     * 硬件初始化由 Platform 层 app_hrpwm_init() 完成（频率、死区、对齐）。
      * Controller 只负责控制参数和状态初始化，不重复配置硬件。
      */
     ctrl_buckboost_init(&g_buckboost);
@@ -121,7 +121,7 @@ void app_control_tick(void)
     uint32_t faults = ctrl_fault_check();
     if (faults != 0U) {
         s_state = SYS_FAULT;
-        hrpwm_emergency_stop();
+        app_hrpwm_emergency_stop();
         ctrl_buckboost_emergency_stop(&g_buckboost);
         ctrl_lcc_emergency_stop(&g_lcc);
         return;
@@ -216,7 +216,7 @@ void app_control_power_disable(void)
 
 void app_control_emergency(void)
 {
-    hrpwm_emergency_stop();
+    app_hrpwm_emergency_stop();
     ctrl_buckboost_emergency_stop(&g_buckboost);
     ctrl_lcc_emergency_stop(&g_lcc);
     s_state = SYS_FAULT;

@@ -36,10 +36,10 @@ AHB = 120MHz，clock_mot0 = 120MHz，clock_adc0/1 上游 120MHz。
 
 | Pair | PWM 实例 | 频率 | 对齐模式 | 初始 duty | 死区 |
 |------|----------|------|----------|-----------|------|
-| `HRPWM_PAIR_0` | PWM0 | 200kHz | 中心对齐 | 0.0 | 10ns |
-| `HRPWM_PAIR_1` | PWM0 | 200kHz | 中心对齐 | 0.0 | 10ns |
-| `HRPWM_PAIR_2` | PWM1 | 148kHz | 中心对齐 | 0.0 | 25ns |
-| `HRPWM_PAIR_3` | PWM1 | 148kHz | 中心对齐 | 0.0 | 25ns |
+| `HRPWM_PAIR_0` | PWM1 | 200kHz | 中心对齐 | 0.0 | 10ns |
+| `HRPWM_PAIR_1` | PWM1 | 200kHz | 中心对齐 | 0.0 | 10ns |
+| `HRPWM_PAIR_2` | PWM0 | 148kHz | 中心对齐 | 0.0 | 25ns |
+| `HRPWM_PAIR_3` | PWM0 | 148kHz | 中心对齐 | 0.0 | 25ns |
 
 ### 2.3 ADC 配置
 
@@ -72,27 +72,27 @@ PTRGI 输入广播到 ADC0+ADC1，通过 `adc16_enable_pmt_queue` 隔离各自�
 | PMT 位置 | 物理通道 | 引脚 | 逻辑通道 | 说明 |
 |:---|:---|:---|:---|:---|
 | 0 | ch15 | — | (dummy) | 丢弃，规避首次转换问题 |
-| 1 | ch3 | PB11 | V_LINK | 级联母线电压 |
-| 2 | ch2 | PB10 | I_L | 电感电流 |
-| 3 | ch11 | PB08 | I_IN | 输入母线电流 |
+| 1 | ch6 | PB14 | V_IN | 输入电压 |
+| 2 | ch4 | PB12 | I_COIL | 线圈电流 |
+| 3 | ch5 | PB13 | I_LF | LCC 谐振电流 |
 
 **ADC1（PWM1 触发，trig_ch=3）：**
 
 | PMT 位置 | 物理通道 | 引脚 | 逻辑通道 | 说明 |
 |:---|:---|:---|:---|:---|
 | 0 | ch15 | — | (dummy) | 丢弃，规避首次转换问题 |
-| 1 | ch6 | PB14 | V_IN | 输入电压 |
-| 2 | ch4 | PB12 | I_COIL | 线圈电流 |
-| 3 | ch5 | PB13 | I_LF | LCC 谐振电流 |
+| 1 | ch3 | PB11 | V_LINK | 级联母线电压 |
+| 2 | ch2 | PB10 | I_L | 电感电流 |
+| 3 | ch11 | PB08 | I_IN | 输入母线电流 |
 
 ### 2.5 硬件资源映射
 
 | 硬件资源 | 控制对象 |
 |----------|---------|
-| PWM0 pair 0 (主半桥) | Buck-Boost |
-| PWM0 pair 1 (同步整流) | Buck-Boost (可选) |
-| PWM1 pair 2 (半桥 A) | LCC 全桥 |
-| PWM1 pair 3 (半桥 B) | LCC 全桥 |
+| PWM1 pair 0 (主半桥) | Buck-Boost |
+| PWM1 pair 1 (同步整流) | Buck-Boost (可选) |
+| PWM0 pair 2 (半桥 A) | LCC 全桥 |
+| PWM0 pair 3 (半桥 B) | LCC 全桥 |
 
 ### 2.6 PWM-ADC 触发链路详解
 
@@ -235,7 +235,7 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 
 | 项目 | 说明 |
 |------|------|
-| 硬件 | PWM0 pair 0/1 |
+| 硬件 | PWM1 pair 0/1 |
 | 控制模式 | Buck / Boost / BuckBoost (自动) |
 | 控制目标 | CV (电压外环→电流内环) / CC (仅电流内环) |
 | 输入 | V_IN, V_LINK, I_L |
@@ -249,7 +249,7 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 
 | 项目 | 说明 |
 |------|------|
-| 硬件 | PWM1 pair 2/3 |
+| 硬件 | PWM0 pair 2/3 |
 | 控制模式 | 开环 / 闭环电流 / PLL 频率跟踪 |
 | 输入 | I_COIL, I_LF |
 | 输出 | 频率 + 移相角，直接调用 `hrpwm_set_frequency()` / `hrpwm_set_phase()` |
@@ -338,13 +338,13 @@ app_comm_tick()       // CAN 帧处理 + 遥测
 
 ## 8. 时间预算与控制策略
 
-### 8.1 PWM0 (200kHz) 周期分析
+### 8.1 PWM1 (200kHz) 周期分析
 
-T_pwm = 5μs。ADC0 一次 PMT 采 4 路（含 dummy），有效 3 路，总转换时间约 3.1μs。余量约 1.5~2μs。
+T_pwm = 5μs。ADC1 一次 PMT 采 4 路（含 dummy），有效 3 路，总转换时间约 3.1μs。余量约 1.5~2μs。
 
 ### 8.2 推荐策略
 
-**PWM0 + ADC0 (Buck-Boost)：每周期采样，每 4 周期更新一次**
+**PWM1 + ADC1 (Buck-Boost)：每周期采样，每 4 周期更新一次**
 
 - 每个周期都进入 ADC PMT callback，锁存 I_L 样本
 - 每个周期都进入 PWM reload IRQ
@@ -355,13 +355,13 @@ T_pwm = 5μs。ADC0 一次 PMT 采 4 路（含 dummy），有效 3 路，总转�
 |----------|--------------|--------------|
 | 每 4 周期 | 50kHz | 20μs |
 
-### 8.3 PWM1 (148kHz) 周期分析
+### 8.3 PWM0 (148kHz) 周期分析
 
 T_pwm ≈ 6.76μs。ADC1 采 4 路（含 dummy），有效 3 路，总转换时间约 3.1μs。余量约 3.6μs。
 
 ### 8.4 不建议的方案
 
-在 200kHz 下对 ADC0 做同一周期内"采样→转换→计算→更新 duty"——余量仅约 1.5μs，不适合作为稳定设计。建议同样采用分周期更新策略。
+在 200kHz 下对 ADC1 做同一周期内"采样→转换→计算→更新 duty"——余量仅约 1.5μs，不适合作为稳定设计。建议同样采用分周期更新策略。
 
 ---
 

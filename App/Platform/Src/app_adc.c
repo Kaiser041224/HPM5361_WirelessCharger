@@ -220,7 +220,7 @@ void app_adc_init(void)
     /* ================================================================
      * Step 4: HRPWM trigger compare — configures CMP8 shadow registers.
      *         PWM counters are NOT running; CMP8 takes effect on first
-     *         counter start (hrpwm_start_all).
+     *         counter start (app_hrpwm_start_all).
      * ================================================================ */
     (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_0,
                                         APP_ADC_PMT_TRIGGER_CMP_INDEX,
