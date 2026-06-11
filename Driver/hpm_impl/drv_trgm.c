@@ -35,7 +35,7 @@ static int trgm_connect_impl(intf_trgm_src_t src, intf_trgm_dst_t dst) {
 
     trgm_output_t cfg;
     cfg.invert = false;
-    cfg.type   = trgm_output_same_as_input;
+    cfg.type   = trgm_output_pulse_at_input_rising_edge;
     cfg.input = src_map[src];
 
     trgm_output_config(HPM_TRGM0, dst_map[dst], &cfg);

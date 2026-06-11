@@ -42,6 +42,7 @@ sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/App/Debug/Inc)
 # Driver headers
 sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/hpm_impl)
 sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/WS2812)
+sdk_app_inc(${CMAKE_CURRENT_SOURCE_DIR}/Driver/IrqProfiler)
 
 # ============================================================================
 # Source Files
@@ -57,6 +58,7 @@ sdk_app_src(Driver/hpm_impl/drv_trgm.c)
 sdk_app_src(Driver/hpm_impl/drv_mcan.c)
 sdk_app_src(Driver/hpm_impl/drv_ws2812.c)
 sdk_app_src(Driver/WS2812/WS2812.c)
+sdk_app_src(Driver/IrqProfiler/irq_profiler.c)
 
 # Interface default stubs
 sdk_app_src(Interface/intf_default.c)
@@ -82,6 +84,7 @@ sdk_app_src(App/Debug/Src/app_debug.c)
 sdk_app_src(App/Debug/Src/app_debug_adc.c)
 sdk_app_src(App/Debug/Src/app_debug_can.c)
 sdk_app_src(App/Debug/Src/app_debug_hrpwm.c)
+sdk_app_src(App/Debug/Src/app_debug_profiler.c)
 sdk_app_src(App/Debug/Src/app_debug_rtt.c)
 
 # App logic — Application (skeleton)

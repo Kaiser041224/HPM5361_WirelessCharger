@@ -29,37 +29,37 @@ void hrpwm_init(void) {
 
     intf_hrpwm_pair_cfg_t cfg[HRPWM_PAIR_COUNT] = {
         [HRPWM_PAIR_0] =
-            {.frequency_hz = 200000,
-                          .duty = 0.0f,
-                          .deadtime_ns = 10,
-                          .jitter_cmp = 4,
-                          .align = INTF_HRPWM_ALIGN_CENTER,
-                          .invert_high_side = false,
-                          .invert_low_side = false},
+            {.frequency_hz = 148000,
+                            .duty = 0.0f,
+                            .deadtime_ns = 25,
+                            .jitter_cmp = 4,
+                            .align = INTF_HRPWM_ALIGN_CENTER,
+                            .invert_high_side = false,
+                            .invert_low_side = false},
         [HRPWM_PAIR_1] =
-            {.frequency_hz = 200000,
-                          .duty = 0.0f,
-                          .deadtime_ns = 10,
-                          .jitter_cmp = 4,
-                          .align = INTF_HRPWM_ALIGN_CENTER,
-                          .invert_high_side = false,
-                          .invert_low_side = false},
+            {.frequency_hz = 148000,
+                            .duty = 0.0f,
+                            .deadtime_ns = 25,
+                            .jitter_cmp = 4,
+                            .align = INTF_HRPWM_ALIGN_CENTER,
+                            .invert_high_side = false,
+                            .invert_low_side = false},
         [HRPWM_PAIR_2] =
-            {.frequency_hz = 148000,
-                          .duty = 0.0f,
-                          .deadtime_ns = 25,
-                          .jitter_cmp = 4,
-                          .align = INTF_HRPWM_ALIGN_CENTER,
-                          .invert_high_side = false,
-                          .invert_low_side = false},
+            {.frequency_hz = 200000,
+                            .duty = 0.0f,
+                            .deadtime_ns = 15,
+                            .jitter_cmp = 4,
+                            .align = INTF_HRPWM_ALIGN_CENTER,
+                            .invert_high_side = false,
+                            .invert_low_side = false},
         [HRPWM_PAIR_3] =
-            {.frequency_hz = 148000,
-                          .duty = 0.0f,
-                          .deadtime_ns = 25,
-                          .jitter_cmp = 4,
-                          .align = INTF_HRPWM_ALIGN_CENTER,
-                          .invert_high_side = false,
-                          .invert_low_side = false},
+            {.frequency_hz = 200000,
+                            .duty = 0.0f,
+                            .deadtime_ns = 15,
+                            .jitter_cmp = 4,
+                            .align = INTF_HRPWM_ALIGN_CENTER,
+                            .invert_high_side = false,
+                            .invert_low_side = false},
     };
 
     for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
@@ -171,9 +171,10 @@ void hrpwm_set_phase(hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, f
     (void)intf_hrpwm_set_phase(&cfg);
 }
 
-void hrpwm_config_phase_limit(hrpwm_inst_t inst,
-                              float max_phase_deg,
-                              float max_duty_ref,
-                              float max_duty_target) {
-    (void)inst; (void)max_phase_deg; (void)max_duty_ref; (void)max_duty_target;
+void hrpwm_config_phase_limit(
+    hrpwm_inst_t inst, float max_phase_deg, float max_duty_ref, float max_duty_target) {
+    (void)inst;
+    (void)max_phase_deg;
+    (void)max_duty_ref;
+    (void)max_duty_target;
 }

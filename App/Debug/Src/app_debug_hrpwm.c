@@ -4,6 +4,7 @@
 #include "app_hrpwm.h"
 #include "board.h"
 #include "drv_hrpwm.h"
+#include "hpm_clock_drv.h"
 #include "hpm_pwm_drv.h"
 #include "intf_clock.h"
 #include "intf_hrpwm.h"
@@ -356,4 +357,19 @@ void app_debug_hrpwm_run_tests(void)
     hrpwm_set_phase(0, 0, 1, 0.0f);
 
     app_debug_printf("\r\n[HRPWM] === HRPWM Validation Tests Completed ===\r\n");
+}
+
+void app_debug_dump_hrpwm_freq(void)
+{
+    uint32_t clk = clock_get_frequency(clock_mot0);
+    uint32_t ahb = clock_get_frequency(clock_ahb);
+    uint32_t r0 = pwm_get_reload_val(BOARD_APP_HRPWM0);
+    uint32_t r1 = pwm_get_reload_val(BOARD_APP_HRPWM1);
+    uint32_t f0 = (r0 > 0U) ? clk / (r0 + 1U) : 0U;
+    uint32_t f1 = (r1 > 0U) ? clk / (r1 + 1U) : 0U;
+
+    app_debug_printf("[HRPWM] PWM0 reload=%lu freq=%luHz | PWM1 reload=%lu freq=%luHz | mot0=%luHz ahb=%luHz\r\n",
+                     (unsigned long)r0, (unsigned long)f0,
+                     (unsigned long)r1, (unsigned long)f1,
+                     (unsigned long)clk, (unsigned long)ahb);
 }

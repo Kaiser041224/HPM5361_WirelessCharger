@@ -11,6 +11,8 @@
  */
 void app_debug_dump_hrpwm_cmp(void);
 
+void app_debug_dump_hrpwm_freq(void);
+
 /**
  * @brief PWM 中断用户回调类型。
  *

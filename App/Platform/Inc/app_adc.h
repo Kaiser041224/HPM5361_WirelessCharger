@@ -15,20 +15,20 @@
 #ifndef APP_ADC_H
 #define APP_ADC_H
 
-#include <stdint.h>
 #include "intf_adc.h"
+#include <stdint.h>
 
 /* ============================================================================
  * Channel Definitions
  * ============================================================================ */
 
 typedef enum {
-    ADC_CH_V_IN   = 0,   /* PB14, ch6:  Buck-Boost输入电压  (ADC1) */
-    ADC_CH_I_IN   = 1,   /* PB08, ch11: Buck-Boost输入母线电流 (ADC0) */
-    ADC_CH_I_L    = 2,   /* PB10, ch2:  电感电流 (电流内环)   (ADC0) */
-    ADC_CH_V_LINK = 3,   /* PB11, ch3:  V_LINK 级联电压       (ADC0) */
-    ADC_CH_I_COIL = 4,   /* PB12, ch4:  线圈电流              (ADC1) */
-    ADC_CH_I_LF   = 5,   /* PB13, ch5:  LCC谐振电流           (ADC1) */
+    ADC_CH_V_IN = 0,   /* PB14, ch6:  Buck-Boost输入电压  (ADC0) */
+    ADC_CH_I_IN = 1,   /* PB08, ch11: Buck-Boost输入母线电流 (ADC1) */
+    ADC_CH_I_L = 2,    /* PB10, ch2:  电感电流 (电流内环)   (ADC1) */
+    ADC_CH_V_LINK = 3, /* PB11, ch3:  V_LINK 级联电压       (ADC1) */
+    ADC_CH_I_COIL = 4, /* PB12, ch4:  线圈电流              (ADC0) */
+    ADC_CH_I_LF = 5,   /* PB13, ch5:  LCC谐振电流           (ADC0) */
     ADC_CH_COUNT,
 } adc_channel_t;
 
@@ -43,7 +43,8 @@ typedef enum {
  * ============================================================================ */
 
 #define APP_ADC_PMT_TRIGGER_CMP_INDEX   (8U)
-#define APP_ADC_PMT_POSITION_RATIO      (0.5f)
+#define APP_ADC_PMT_POSITION_RATIO_ADC0 (0.5f)
+#define APP_ADC_PMT_POSITION_RATIO_ADC1 (0.5f)
 #define APP_ADC_PMT_ADC0_TRIG_CH        (0U)
 #define APP_ADC_PMT_ADC1_TRIG_CH        (3U)
 #define APP_ADC_PMT_ADC0_CH_COUNT       (4U)
@@ -68,23 +69,24 @@ typedef struct {
 void app_adc_init(void);
 
 uint16_t app_adc_read_raw(adc_channel_t ch);
-void     app_adc_read_all(uint16_t values[ADC_CH_COUNT]);
-int      app_adc_read_adc_voltage_mv(adc_channel_t ch, float *voltage_mv);
-int      app_adc_read_sense_voltage_mv(adc_channel_t ch, float *voltage_mv);
-int      app_adc_read_physical(adc_channel_t ch, float *value);
+void app_adc_read_all(uint16_t values[ADC_CH_COUNT]);
+int app_adc_read_adc_voltage_mv(adc_channel_t ch, float* voltage_mv);
+int app_adc_read_sense_voltage_mv(adc_channel_t ch, float* voltage_mv);
+int app_adc_read_physical(adc_channel_t ch, float* value);
 
-void app_adc_set_calibration(adc_channel_t ch, const app_adc_calibration_t *cal);
-int  app_adc_get_calibration(adc_channel_t ch, app_adc_calibration_t *cal);
+void app_adc_set_calibration(adc_channel_t ch, const app_adc_calibration_t* cal);
+int app_adc_get_calibration(adc_channel_t ch, app_adc_calibration_t* cal);
 void app_adc_set_vref_inst(app_adc_inst_t inst, float mv);
 void app_adc_set_vref_all(float mv);
 void app_adc_calibrate(void);
 
 void app_adc_pmt_start_inst(app_adc_inst_t inst);
 void app_adc_pmt_stop_inst(app_adc_inst_t inst);
-int  app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw);
+int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t* raw);
 
-void app_adc_wdog_init(adc_channel_t ch, uint16_t thshd_high, uint16_t thshd_low,
-                       intf_adc_wdog_cb_t cb, void *user_data);
+void app_adc_wdog_init(
+    adc_channel_t ch, uint16_t thshd_high, uint16_t thshd_low, intf_adc_wdog_cb_t cb,
+    void* user_data);
 void app_adc_wdog_reenable(adc_channel_t ch);
 
 #endif /* APP_ADC_H */

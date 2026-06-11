@@ -50,7 +50,7 @@ typedef enum {
 
 /* Configurable defaults (0 in cfg = use these values) */
 #define INTF_ADC_DEFAULT_SAMPLE_CYCLE (25U)
-#define INTF_ADC_DEFAULT_CLOCK_DIV    (3U) /* 120/3 = 40 MHz ≤ 50 MHz */
+#define INTF_ADC_DEFAULT_CLOCK_DIV    (2U) /* 120/3 = 40 MHz ≤ 50 MHz */
 #define INTF_ADC_DEFAULT_VREF_MV      (3300.0f)
 
 /** @brief ADC conversion mode */
@@ -70,6 +70,19 @@ typedef void (*intf_adc_seq_cb_t)(intf_adc_ch_t trig_ch, void* user_data);
 
 /** @brief Watchdog threshold violation callback */
 typedef void (*intf_adc_wdog_cb_t)(intf_adc_ch_t ch, uint16_t value, void* user_data);
+
+typedef struct {
+    uint32_t irq_entry[INTF_ADC_INSTANCE_COUNT];
+    uint32_t generic_entry[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_complete[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_startup_drop[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_callback[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_invalid[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_invalid_cycle[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_invalid_trig[INTF_ADC_INSTANCE_COUNT];
+    uint32_t pmt_invalid_channel[INTF_ADC_INSTANCE_COUNT];
+    uint32_t adc1_handled_in_adc0_irq;
+} intf_adc_diag_snapshot_t;
 
 /** @brief Per-instance ADC configuration */
 typedef struct {
@@ -138,6 +151,7 @@ int intf_adc_start(intf_adc_ch_t ch);
 int intf_adc_stop(intf_adc_ch_t ch);
 void intf_adc_set_vref(intf_adc_ch_t ch, float vref_mv);
 int intf_adc_calibrate(intf_adc_ch_t ch); /* re-trigger ADC offset calibration */
+int intf_adc_get_diag_snapshot(intf_adc_diag_snapshot_t* snapshot);
 
 /* WDOG re-arm: re-enable interrupt for a channel after wdog_cb fired.
  * Required because the ISR auto-disables the channel's WDOG interrupt

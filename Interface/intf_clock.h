@@ -10,6 +10,7 @@ extern "C" {
 void intf_clock_init(void);
 uint32_t intf_clock_get_cpu_freq(void);
 uint32_t intf_clock_get_ahb_freq(void);
+uint32_t intf_clock_get_cycle(void);
 void intf_clock_delay_ms(uint32_t ms);
 void intf_clock_delay_us(uint32_t us);
 

@@ -58,6 +58,13 @@ uint32_t intf_clock_get_ahb_freq(void)
     return clock_get_frequency(clock_ahb);
 }
 
+uint32_t intf_clock_get_cycle(void)
+{
+    uint32_t value;
+    __asm__ volatile("csrr %0, mcycle" : "=r"(value));
+    return value;
+}
+
 void intf_clock_delay_ms(uint32_t ms)
 {
     clock_cpu_delay_ms(ms);

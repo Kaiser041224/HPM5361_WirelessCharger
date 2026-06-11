@@ -8,6 +8,7 @@
 #include "app_adc.h"
 #include "app_analog_signal.h"
 #include "app_hrpwm.h"
+#include "irq_profiler.h"
 
 #include "intf_adc.h"
 #include "intf_hrpwm.h"
@@ -15,6 +16,9 @@
 
 #include <stddef.h>
 #include <string.h>
+
+static irq_prof_id_t g_prof_adc0;
+static irq_prof_id_t g_prof_adc1;
 
 /* ============================================================================
  * Channel Mapping
@@ -26,16 +30,16 @@ typedef struct {
 } app_adc_map_t;
 
 /*
- * ADC0 (PWM0): V_LINK + I_L + I_IN
- * ADC1 (PWM1): V_IN + I_COIL + I_LF
+ * ADC0 (PWM0 148kHz): V_IN + I_COIL + I_LF
+ * ADC1 (PWM1 200kHz): V_LINK + I_L + I_IN
  */
 static const app_adc_map_t adc_map[ADC_CH_COUNT] = {
-    [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_1, .hw_ch = 6},
-    [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 11},
-    [ADC_CH_I_L]    = {.inst = APP_ADC_INST_0, .hw_ch = 2},
-    [ADC_CH_V_LINK] = {.inst = APP_ADC_INST_0, .hw_ch = 3},
-    [ADC_CH_I_COIL] = {.inst = APP_ADC_INST_1, .hw_ch = 4},
-    [ADC_CH_I_LF]   = {.inst = APP_ADC_INST_1, .hw_ch = 5},
+    [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 6},
+    [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_1, .hw_ch = 11},
+    [ADC_CH_I_L]    = {.inst = APP_ADC_INST_1, .hw_ch = 2},
+    [ADC_CH_V_LINK] = {.inst = APP_ADC_INST_1, .hw_ch = 3},
+    [ADC_CH_I_COIL] = {.inst = APP_ADC_INST_0, .hw_ch = 4},
+    [ADC_CH_I_LF]   = {.inst = APP_ADC_INST_0, .hw_ch = 5},
 };
 
 /* ============================================================================
@@ -91,42 +95,48 @@ static uint32_t pmt_dma1[APP_ADC_PMT_DMA_BUFF_LEN] __attribute__((section(".nonc
 
 static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint8_t count, void *user_data)
 {
+    IRQ_PROF_ENTER(g_prof_adc0);
+
     (void)trig;
     (void)user_data;
 
-    static const adc_channel_t hw_to_logic[16] = {
-        [11] = ADC_CH_I_IN,
-        [2]  = ADC_CH_I_L,
-        [3]  = ADC_CH_V_LINK,
+    static const adc_channel_t slot_to_logic[4] = {
+        [0] = ADC_CH_COUNT,
+        [1] = ADC_CH_V_IN,
+        [2] = ADC_CH_I_COIL,
+        [3] = ADC_CH_I_LF,
     };
 
     for (uint8_t i = 1; i < count && i < 4U; i++) {
-        uint8_t hw_ch = (i == 1) ? 3U : (i == 2) ? 2U : 11U;
-        if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
-            pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
-            app_analog_signal_update_raw(hw_to_logic[hw_ch], values[i]);
+        if (slot_to_logic[i] < ADC_CH_COUNT) {
+            pmt_raw_cache[slot_to_logic[i]] = values[i];
         }
     }
+
+    IRQ_PROF_EXIT(g_prof_adc0);
 }
 
 static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint8_t count, void *user_data)
 {
+    IRQ_PROF_ENTER(g_prof_adc1);
+
     (void)trig;
     (void)user_data;
 
-    static const adc_channel_t hw_to_logic[16] = {
-        [6] = ADC_CH_V_IN,
-        [4] = ADC_CH_I_COIL,
-        [5] = ADC_CH_I_LF,
+    static const adc_channel_t slot_to_logic[4] = {
+        [0] = ADC_CH_COUNT,
+        [1] = ADC_CH_V_LINK,
+        [2] = ADC_CH_I_L,
+        [3] = ADC_CH_I_IN,
     };
 
     for (uint8_t i = 1; i < count && i < 4U; i++) {
-        uint8_t hw_ch = (i == 1) ? 6U : (i == 2) ? 4U : 5U;
-        if (hw_ch < 16U && hw_to_logic[hw_ch] < ADC_CH_COUNT) {
-            pmt_raw_cache[hw_to_logic[hw_ch]] = values[i];
-            app_analog_signal_update_raw(hw_to_logic[hw_ch], values[i]);
+        if (slot_to_logic[i] < ADC_CH_COUNT) {
+            pmt_raw_cache[slot_to_logic[i]] = values[i];
         }
     }
+
+    IRQ_PROF_EXIT(g_prof_adc1);
 }
 
 /* ============================================================================
@@ -138,6 +148,10 @@ extern void hpm_trgm_driver_register(void);
 
 void app_adc_init(void)
 {
+    g_prof_adc0 = irq_prof_register("ADC0_PMT");
+    g_prof_adc1 = irq_prof_register("ADC1_PMT");
+    irq_prof_measure_overhead();
+
     hpm_adc_driver_register();
     hpm_trgm_driver_register();
 
@@ -147,7 +161,7 @@ void app_adc_init(void)
      *            signal reaches the ADC inputs.
      * ================================================================ */
 
-    /* ADC0 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=0 */
+    /* ADC0 PMT — 4 channels (dummy, V_IN, I_COIL, I_LF) on trig_ch=0 (PWM0 148kHz) */
     {
         memset(pmt_dma0, 0, sizeof(pmt_dma0));
         intf_adc_cfg_t cfg = {
@@ -165,13 +179,13 @@ void app_adc_init(void)
             .pmt_cb_user_data = NULL,
         };
         cfg.pmt_ch_list[0] = 15U;
-        cfg.pmt_ch_list[1] = 3U;
-        cfg.pmt_ch_list[2] = 2U;
-        cfg.pmt_ch_list[3] = 11U;
+        cfg.pmt_ch_list[1] = 6U;
+        cfg.pmt_ch_list[2] = 4U;
+        cfg.pmt_ch_list[3] = 5U;
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_0, 0), &cfg);
     }
 
-    /* ADC1 PMT — 4 channels (dummy, V_IN, I_COIL, I_LF) on trig_ch=3 */
+    /* ADC1 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=3 (PWM1 200kHz) */
     {
         memset(pmt_dma1, 0, sizeof(pmt_dma1));
         intf_adc_cfg_t cfg = {
@@ -189,9 +203,9 @@ void app_adc_init(void)
             .pmt_cb_user_data = NULL,
         };
         cfg.pmt_ch_list[0] = 15U;
-        cfg.pmt_ch_list[1] = 6U;
-        cfg.pmt_ch_list[2] = 4U;
-        cfg.pmt_ch_list[3] = 5U;
+        cfg.pmt_ch_list[1] = 3U;
+        cfg.pmt_ch_list[2] = 2U;
+        cfg.pmt_ch_list[3] = 11U;
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_1, 0), &cfg);
     }
 
@@ -210,10 +224,10 @@ void app_adc_init(void)
      * ================================================================ */
     (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_0,
                                         APP_ADC_PMT_TRIGGER_CMP_INDEX,
-                                        APP_ADC_PMT_POSITION_RATIO);
+                                        APP_ADC_PMT_POSITION_RATIO_ADC0);
     (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_1,
                                         APP_ADC_PMT_TRIGGER_CMP_INDEX,
-                                        APP_ADC_PMT_POSITION_RATIO);
+                                        APP_ADC_PMT_POSITION_RATIO_ADC1);
 }
 
 /* ============================================================================

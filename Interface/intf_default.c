@@ -366,6 +366,17 @@ int intf_adc_calibrate(intf_adc_ch_t ch)
     return -1;
 }
 
+__attribute__((weak)) int adc_get_diag_snapshot(intf_adc_diag_snapshot_t *snapshot)
+{
+    (void)snapshot;
+    return -1;
+}
+
+int intf_adc_get_diag_snapshot(intf_adc_diag_snapshot_t *snapshot)
+{
+    return adc_get_diag_snapshot(snapshot);
+}
+
 /* ============================================================================
  * UART Interface
  * ============================================================================ */

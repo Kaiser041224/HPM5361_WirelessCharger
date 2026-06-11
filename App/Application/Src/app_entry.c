@@ -38,6 +38,7 @@ void app_init(void) {
 }
 
 void app_run_once(void) {
+    app_analog_signal_process();
     app_control_tick();
     app_comm_tick();
 }

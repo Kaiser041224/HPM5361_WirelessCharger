@@ -87,6 +87,7 @@ typedef struct {
 } adc_inst_t;
 
 static adc_inst_t adc_instances[INTF_ADC_INSTANCE_COUNT];
+static volatile intf_adc_diag_snapshot_t adc_diag;
 
 /* ============================================================================
  * Hardware Mapping Helpers
@@ -197,15 +198,6 @@ static void adc_enable_instance_irq(uint8_t inst) {
     if (irq != 0) {
         intc_m_enable_irq_with_priority(irq, 1);
     }
-    if (inst == 1) {
-        intc_m_enable_irq_with_priority(IRQn_ADC0, 1);
-    }
-}
-
-static bool adc_has_pending_status(uint8_t inst) {
-    adc_inst_t* ai = &adc_instances[inst];
-
-    return ai->initialized && ai->base != NULL && adc16_get_status_flags(ai->base) != 0;
 }
 
 /* ============================================================================
@@ -213,6 +205,8 @@ static bool adc_has_pending_status(uint8_t inst) {
  * ============================================================================ */
 
 static void adc_generic_isr(uint8_t inst) {
+    adc_diag.generic_entry[inst]++;
+
     adc_inst_t* ai = &adc_instances[inst];
     if (!ai->initialized)
         return;
@@ -223,8 +217,10 @@ static void adc_generic_isr(uint8_t inst) {
 
     /* PMT trigger complete */
     if (ADC16_INT_STS_TRIG_CMPT_GET(status) && ai->mode == INTF_ADC_MODE_PMT) {
+        adc_diag.pmt_complete[inst]++;
         ai->pmt.frame_cnt++;
         if (ai->pmt.frame_cnt < ADC_PMT_STARTUP_DISCARD) {
+            adc_diag.pmt_startup_drop[inst]++;
             return;
         }
 
@@ -260,12 +256,18 @@ static void adc_generic_isr(uint8_t inst) {
                 }
 #endif
                 for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
-                    if (dma[i].cycle_bit == 0)
+                    if (dma[i].cycle_bit == 0) {
+                        adc_diag.pmt_invalid_cycle[inst]++;
                         continue;
-                    if (dma[i].trig_ch != ai->pmt.trig_ch)
+                    }
+                    if (dma[i].trig_ch != ai->pmt.trig_ch) {
+                        adc_diag.pmt_invalid_trig[inst]++;
                         continue;
-                    if (dma[i].adc_ch != ai->pmt.ch_list[i])
+                    }
+                    if (dma[i].adc_ch != ai->pmt.ch_list[i]) {
+                        adc_diag.pmt_invalid_channel[inst]++;
                         continue;
+                    }
                     values[valid] = dma[i].result;
                     valid++;
                 }
@@ -280,7 +282,10 @@ static void adc_generic_isr(uint8_t inst) {
             }
 
             if (valid == ai->pmt.ch_count) {
+                adc_diag.pmt_callback[inst]++;
                 ai->pmt.cb(INTF_ADC_CH(inst, ai->pmt.trig_ch), values, valid, ai->pmt.cb_user_data);
+            } else {
+                adc_diag.pmt_invalid[inst]++;
             }
         }
     }
@@ -319,15 +324,28 @@ static void adc_generic_isr(uint8_t inst) {
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC0, isr_adc0)
 void isr_adc0(void) {
+    adc_diag.irq_entry[0]++;
     adc_generic_isr(0);
-    /* HPM5361 ADC0/ADC1 PMT trigger complete is wired to ADC0 IRQ in SDK motor samples. */
-    if (adc_has_pending_status(1)) {
-        adc_generic_isr(1);
-    }
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC1, isr_adc1)
-void isr_adc1(void) { adc_generic_isr(1); }
+void isr_adc1(void) {
+    adc_diag.irq_entry[1]++;
+    adc_generic_isr(1);
+}
+
+int adc_get_diag_snapshot(intf_adc_diag_snapshot_t *snapshot)
+{
+    if (snapshot == NULL) {
+        return -1;
+    }
+
+    uint32_t mstatus = disable_global_irq(CSR_MSTATUS_MIE_MASK);
+    *snapshot = adc_diag;
+    restore_global_irq(mstatus);
+
+    return 0;
+}
 
 /* ============================================================================
  * WDOG re-enable helper (public for App manual re-arm)
