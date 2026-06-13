@@ -12,16 +12,67 @@
 
 #include "app_control.h"
 
+#include "algo_filter.h"
 #include "app_adc.h"
+#include "app_analog_signal.h"
 #include "app_gptmr.h"
 #include "app_hrpwm.h"
 #include "ctrl_buckboost.h"
 #include "ctrl_fault.h"
 #include "ctrl_lcc.h"
-#include "intf_hrpwm.h"
+
+#include "hpm_common.h"
 
 #include <stddef.h>
 #include <string.h>
+
+/* ============================================================================
+ * 诊断数据 — 主循环 RTT 打印用，ISR 中更新
+ * ============================================================================ */
+
+/* 放入 DLM (fast_ram.bss)，ISR 中高频写入，主循环读取，消除 flash 访问延迟 */
+ATTR_PLACE_AT_FAST_RAM_BSS volatile ctrl_diag_t g_ctrl_diag;
+
+/* ============================================================================
+ * 滤波器实例
+ * ============================================================================ */
+
+static algo_lpf_t lpf_i_l;
+static algo_ma_t ma_v_link;
+static algo_ma_t ma_i_in;
+static algo_ma_t ma_v_in;
+
+static float ma_buf_v_link[4];
+static float ma_buf_i_in[4];
+static float ma_buf_v_in[4];
+
+#define ADC1_SAMPLE_RATE_HZ 200000.0f
+#define ADC0_SAMPLE_RATE_HZ 148000.0f
+
+static void filter_init_all(void) {
+    algo_lpf_cfg_t lpf_cfg;
+    algo_ma_cfg_t ma_cfg;
+
+    algo_lpf_ctor(&lpf_i_l);
+    lpf_cfg.cutoff_hz = 20000.0f;
+    lpf_cfg.sample_rate_hz = ADC1_SAMPLE_RATE_HZ;
+    lpf_i_l.init(&lpf_i_l, &lpf_cfg);
+
+    algo_ma_ctor(&ma_v_link);
+    ma_cfg.window_size = 4;
+    ma_cfg.buffer = ma_buf_v_link;
+    ma_v_link.init(&ma_v_link, &ma_cfg);
+
+    algo_ma_ctor(&ma_i_in);
+    ma_cfg.window_size = 4;
+    ma_cfg.buffer = ma_buf_i_in;
+    ma_i_in.init(&ma_i_in, &ma_cfg);
+
+    algo_ma_ctor(&ma_v_in);
+    ma_cfg.window_size = 4;
+    ma_cfg.buffer = ma_buf_v_in;
+    ma_v_in.init(&ma_v_in, &ma_cfg);
+}
 
 /* ============================================================================
  * 双缓冲 setpoint
@@ -44,96 +95,82 @@ static ctrl_buckboost_t g_buckboost;
 static ctrl_lcc_t g_lcc;
 
 /* ============================================================================
- * 滤波器实例 (占位 — 实际部署时使用 algo_lpf_t)
+ * ISR 回调 — Buck-Boost 电流内环 (200kHz, ADC1 PMT 完成回调)
+ *
+ * ADC1 由 PWM1 CMP8 通过 TRGM 触发，采样完成后立即执行：
+ *   读 raw → float 换算 → LPF 滤波 → 控制器 step → 更新占空比
  * ============================================================================ */
 
-/* static algo_lpf_t lpf_i_l; */
-/* static algo_lpf_t lpf_v_link; */
+/* ISR 函数放入 ILM (指令 RAM)，消除 flash wait state 和 cache miss，
+ * 保证 200kHz 电流内环的确定性执行时间 (~45ns)。 */
 
-/* ============================================================================
- * ISR 回调 — 电流内环 (200kHz, PWM1 Reload ISR)
- * ============================================================================ */
-
+ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
-    /* 读取 ADC cache */
     uint16_t raw_i_l;
     app_adc_get_pmt_raw(ADC_CH_I_L, &raw_i_l);
 
-    /* TODO: float 换算 + LPF 滤波 */
-    /* float i_l = app_adc_raw_to_physical(raw_i_l); */
-    /* float filtered = algo_lpf_step(&lpf_i_l, i_l); */
+    float phys_i_l;
+    app_analog_signal_convert_raw(ADC_CH_I_L, raw_i_l, &phys_i_l);
+    g_ctrl_diag.raw.i_l_a = phys_i_l;
+    g_ctrl_diag.filt.i_l_a = algo_lpf_step_fast(&lpf_i_l, phys_i_l);
 
-    /* TODO: 调用控制器 step */
-    /* ctrl_buckboost_step(&g_buckboost, s_active.voltage_ref, filtered); */
-
-    (void)raw_i_l;
+    /* TODO: 控制器 step → set_duty */
 }
 
 /* ============================================================================
- * ISR 回调 — LCC 电流内环 (148kHz, PWM0 Reload ISR)
+ * ISR 回调 — LCC 电流内环 (148kHz, ADC0 PMT 完成回调)
  * ============================================================================ */
 
+ATTR_RAMFUNC
 static void lcc_current_loop_isr(void) {
-    /* 读取 ADC cache */
     uint16_t raw_i_coil, raw_i_lf;
     app_adc_get_pmt_raw(ADC_CH_I_COIL, &raw_i_coil);
     app_adc_get_pmt_raw(ADC_CH_I_LF, &raw_i_lf);
 
-    /* TODO: float 换算 + LPF 滤波 */
-    /* float i_coil = app_adc_raw_to_physical(raw_i_coil); */
-    /* float i_lf   = app_adc_raw_to_physical(raw_i_lf); */
+    float phys_i_coil, phys_i_lf;
+    app_analog_signal_convert_raw(ADC_CH_I_COIL, raw_i_coil, &phys_i_coil);
+    app_analog_signal_convert_raw(ADC_CH_I_LF, raw_i_lf, &phys_i_lf);
+    g_ctrl_diag.raw.i_coil_a = phys_i_coil;
+    g_ctrl_diag.raw.i_lf_a = phys_i_lf;
+    g_ctrl_diag.filt.i_coil_a = phys_i_coil;
+    g_ctrl_diag.filt.i_lf_a = phys_i_lf;
 
-    /* TODO: 调用控制器 step */
-    /* ctrl_lcc_step(&g_lcc, i_coil, i_lf); */
-
-    (void)raw_i_coil;
-    (void)raw_i_lf;
+    /* TODO: 控制器 step */
 }
 
 /* ============================================================================
  * ISR 回调 — 电压外环 (50kHz, GPTMR1 CH0)
  * ============================================================================ */
 
-static void voltage_loop_isr(void) {
-    /* 读取 ADC cache */
+ATTR_RAMFUNC
+static void buckboost_voltage_loop_isr(void) {
     uint16_t raw_v_link;
     app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link);
 
-    /* TODO: float 换算 + LPF 滤波 */
-    /* float v_link = app_adc_raw_to_physical(raw_v_link); */
-    /* float filtered = algo_lpf_step(&lpf_v_link, v_link); */
+    float phys_v_link;
+    app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
+    g_ctrl_diag.raw.v_link_v = phys_v_link;
+    g_ctrl_diag.filt.v_link_v = ma_v_link.step(&ma_v_link, phys_v_link);
 
-    /* TODO: 电压环 PI 计算，更新 staging */
-    /* float error = s_active.voltage_ref - filtered; */
-    /* s_staging.current_ref += kp * (error - prev_error) + ki * error; */
-
-    /* 原子 swap staging → active */
+    /* TODO: 电压环 PI → s_staging.current_ref */
     s_active = s_staging;
-
-    (void)raw_v_link;
 }
 
-/* ============================================================================
- * ISR 回调 — 功率外环 (20kHz, GPTMR1 CH1)
- * ============================================================================ */
-
-static void power_loop_isr(void) {
-    /* 读取 ADC cache */
+ATTR_RAMFUNC
+static void buckboost_power_loop_isr(void) {
     uint16_t raw_v_in, raw_i_in;
     app_adc_get_pmt_raw(ADC_CH_V_IN, &raw_v_in);
     app_adc_get_pmt_raw(ADC_CH_I_IN, &raw_i_in);
 
-    /* TODO: float 换算 + 功率计算 */
-    /* float v_in = app_adc_raw_to_physical(raw_v_in); */
-    /* float i_in = app_adc_raw_to_physical(raw_i_in); */
-    /* float p_in = v_in * i_in; */
+    float phys_v_in, phys_i_in;
+    app_analog_signal_convert_raw(ADC_CH_V_IN, raw_v_in, &phys_v_in);
+    app_analog_signal_convert_raw(ADC_CH_I_IN, raw_i_in, &phys_i_in);
+    g_ctrl_diag.raw.v_in_v = phys_v_in;
+    g_ctrl_diag.raw.i_in_a = phys_i_in;
+    g_ctrl_diag.filt.v_in_v = ma_v_in.step(&ma_v_in, phys_v_in);
+    g_ctrl_diag.filt.i_in_a = ma_i_in.step(&ma_i_in, phys_i_in);
 
-    /* TODO: 功率环 PI 计算，更新 staging */
-    /* float error = s_active.power_limit - p_in; */
-    /* s_staging.voltage_ref += kp * (error - prev_error) + ki * error; */
-
-    (void)raw_v_in;
-    (void)raw_i_in;
+    /* TODO: 功率环 PI → s_staging.voltage_ref */
 }
 
 /* ============================================================================
@@ -178,18 +215,18 @@ void app_control_init(void) {
     memset((void*)&s_active, 0, sizeof(s_active));
     memset(&s_staging, 0, sizeof(s_staging));
 
-    /* 3. GPTMR1 外环定时器 (通过 Platform 层) */
+    /* 3. 滤波器初始化 */
+    filter_init_all();
+
+    /* 4. GPTMR1 外环定时器 (通过 Platform 层) */
     app_gptmr_init();
-    app_gptmr_register_callback(APP_GPTMR_CH_VOLTAGE, voltage_loop_isr);
-    app_gptmr_register_callback(APP_GPTMR_CH_POWER, power_loop_isr);
+    app_gptmr_register_callback(APP_GPTMR_CH_VOLTAGE, buckboost_voltage_loop_isr);
+    app_gptmr_register_callback(APP_GPTMR_CH_POWER, buckboost_power_loop_isr);
+    app_gptmr_start_all();
 
-    /* 4. PWM1 Reload ISR: 电流内环 200kHz */
-    intf_hrpwm_config_reload_irq(1, buckboost_current_loop_isr);
-    intf_hrpwm_enable_reload_irq(1);
-
-    /* 5. PWM0 Reload ISR: LCC 电流内环 148kHz */
-    intf_hrpwm_config_reload_irq(0, lcc_current_loop_isr);
-    intf_hrpwm_enable_reload_irq(0);
+    /* 5. ADC PMT 完成回调: 电流内环 */
+    app_adc_register_pmt_callback(APP_ADC_INST_1, buckboost_current_loop_isr);
+    app_adc_register_pmt_callback(APP_ADC_INST_0, lcc_current_loop_isr);
 
     /* 6. 状态初始化 */
     s_state = SYS_INIT;

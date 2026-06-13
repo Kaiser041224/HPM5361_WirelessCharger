@@ -100,6 +100,26 @@ void app_analog_signal_snapshot_refresh_raw(void);
 int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t *raw);
 
 /**
+ * @brief 轻量级 raw → 物理量转换（ISR 专用，无滤波/快照更新）。
+ *
+ * 在 init 时预计算合并校准系数，调用时仅做 1 次乘法 + 1 次加法。
+ *
+ * @param ch        ADC 通道。
+ * @param raw       原始 ADC 值。
+ * @param physical  输出物理量。
+ */
+void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float *physical);
+
+/**
+ * @brief 读取缓存中的物理量（ISR 专用，无函数调用开销）。
+ *
+ * @param ch        ADC 通道。
+ * @param physical  输出物理量。
+ * @return 0 成功，-1 缓存无效。
+ */
+int app_analog_signal_get_physical(adc_channel_t ch, float *physical);
+
+/**
  * @brief 读取单个目标模拟量。
  *
  * @param item  目标信号项。

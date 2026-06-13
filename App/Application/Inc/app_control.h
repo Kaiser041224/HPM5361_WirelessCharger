@@ -34,6 +34,31 @@ typedef enum {
     MODE_STANDBY    = 5,
 } op_mode_t;
 
+typedef struct {
+    struct {
+        float i_l_a;
+        float v_link_v;
+        float i_in_a;
+        float v_in_v;
+        float i_coil_a;
+        float i_lf_a;
+    } raw;
+    struct {
+        float i_l_a;
+        float v_link_v;
+        float i_in_a;
+        float v_in_v;
+        float i_coil_a;
+        float i_lf_a;
+    } filt;
+    struct {
+        float bb;
+        float lcc;
+    } duty;
+} ctrl_diag_t;
+
+extern volatile ctrl_diag_t g_ctrl_diag;
+
 void app_control_init(void);
 
 void app_control_tick(void);

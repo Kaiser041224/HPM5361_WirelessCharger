@@ -66,7 +66,11 @@ typedef struct {
  * API
  * ============================================================================ */
 
+typedef void (*app_adc_pmt_callback_t)(void);
+
 void app_adc_init(void);
+
+int app_adc_register_pmt_callback(app_adc_inst_t inst, app_adc_pmt_callback_t cb);
 
 uint16_t app_adc_read_raw(adc_channel_t ch);
 void app_adc_read_all(uint16_t values[ADC_CH_COUNT]);

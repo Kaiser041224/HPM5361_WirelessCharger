@@ -7,6 +7,7 @@
 #include "app_analog_signal.h"
 
 #include "algo_filter.h"
+#include "hpm_common.h"
 
 #include <stddef.h>
 
@@ -180,6 +181,11 @@ static float s_physical_cache[ADC_CH_COUNT];
 static float s_filtered_cache[ADC_CH_COUNT];
 static bool s_filtered_cache_valid[ADC_CH_COUNT];
 
+/* 预计算合并校准系数: physical = raw * cal_gain + cal_offset
+ * 放入 DLM (fast_ram.bss)，ISR 中每个周期读取，消除 flash 访问延迟 */
+ATTR_PLACE_AT_FAST_RAM_BSS static float s_cal_gain[ADC_CH_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS static float s_cal_offset[ADC_CH_COUNT];
+
 static bool s_initialized;
 
 app_analog_signal_snapshot_t g_analog_signal_snapshot;
@@ -207,20 +213,6 @@ static bool app_analog_signal_item_is_valid(app_analog_signal_item_t item) {
  */
 static const app_analog_signal_filter_cfg_t* app_analog_signal_filter_cfg(adc_channel_t ch) {
     return &s_default_filter_cfg[ch];
-}
-
-/**
- * @brief 将 ADC 原始值转换为 ADC 引脚电压。
- *
- * @param raw    原始 ADC 结果。
- * @param adc_mv 输出 ADC 引脚电压，单位 mV。
- */
-static void app_analog_signal_raw_to_adc_voltage_mv(uint16_t raw, float* adc_mv) {
-    if (adc_mv == NULL) {
-        return;
-    }
-
-    *adc_mv = (float)raw * INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
 }
 
 /**
@@ -459,10 +451,6 @@ static float*
 }
 
 void app_analog_signal_update_raw(adc_channel_t ch, uint16_t raw) {
-    float adc_mv;
-    float sense_mv;
-    float physical;
-
     if (ch >= ADC_CH_COUNT) {
         return;
     }
@@ -470,11 +458,7 @@ void app_analog_signal_update_raw(adc_channel_t ch, uint16_t raw) {
     s_raw_cache[ch] = raw;
     s_raw_cache_valid[ch] = true;
 
-    app_analog_signal_raw_to_adc_voltage_mv(raw, &adc_mv);
-    sense_mv =
-        adc_mv * s_default_calibration[ch].sense_gain + s_default_calibration[ch].sense_offset_mv;
-    physical = sense_mv * s_default_calibration[ch].physical_gain
-             + s_default_calibration[ch].physical_offset;
+    float physical = (float)raw * s_cal_gain[ch] + s_cal_offset[ch];
     s_physical_cache[ch] = physical;
 
     app_analog_signal_item_t item = s_channel_to_item[ch];
@@ -544,12 +528,38 @@ void app_analog_signal_init(void) {
 
     app_analog_signal_load_default_calibration();
 
+    /* 预计算合并校准系数: physical = raw * gain + offset */
+    float vref_over_range = INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
+    for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
+        const app_adc_calibration_t *cal = &s_default_calibration[ch];
+        s_cal_gain[ch]   = vref_over_range * cal->sense_gain * cal->physical_gain;
+        s_cal_offset[ch] = cal->sense_offset_mv * cal->physical_gain + cal->physical_offset;
+    }
+
     for (app_analog_signal_item_t item = APP_ANALOG_SIGNAL_ITEM_V_IN;
          item < APP_ANALOG_SIGNAL_ITEM_COUNT; item++) {
         app_analog_signal_filter_init_item(item);
     }
 
     s_initialized = true;
+}
+
+ATTR_RAMFUNC
+void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float *physical)
+{
+    if (ch >= ADC_CH_COUNT || physical == NULL) {
+        return;
+    }
+    *physical = (float)raw * s_cal_gain[ch] + s_cal_offset[ch];
+}
+
+int app_analog_signal_get_physical(adc_channel_t ch, float *physical)
+{
+    if (ch >= ADC_CH_COUNT || physical == NULL || !s_raw_cache_valid[ch]) {
+        return -1;
+    }
+    *physical = s_physical_cache[ch];
+    return 0;
 }
 
 /**

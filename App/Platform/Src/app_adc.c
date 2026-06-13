@@ -75,6 +75,15 @@ static intf_adc_ch_t app_adc_encoded_channel(adc_channel_t ch)
 
 static volatile uint16_t pmt_raw_cache[ADC_CH_COUNT];
 
+static app_adc_pmt_callback_t s_pmt_callback[APP_ADC_INST_COUNT];
+
+int app_adc_register_pmt_callback(app_adc_inst_t inst, app_adc_pmt_callback_t cb)
+{
+    if (inst >= APP_ADC_INST_COUNT) return -1;
+    s_pmt_callback[inst] = cb;
+    return 0;
+}
+
 int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw)
 {
     if (!app_adc_channel_is_valid(ch) || raw == NULL) return -1;
@@ -113,6 +122,10 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
         }
     }
 
+    if (s_pmt_callback[APP_ADC_INST_0] != NULL) {
+        s_pmt_callback[APP_ADC_INST_0]();
+    }
+
     IRQ_PROF_EXIT(g_prof_adc0);
 }
 
@@ -134,6 +147,10 @@ static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint
         if (slot_to_logic[i] < ADC_CH_COUNT) {
             pmt_raw_cache[slot_to_logic[i]] = values[i];
         }
+    }
+
+    if (s_pmt_callback[APP_ADC_INST_1] != NULL) {
+        s_pmt_callback[APP_ADC_INST_1]();
     }
 
     IRQ_PROF_EXIT(g_prof_adc1);
