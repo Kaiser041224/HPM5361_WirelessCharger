@@ -93,10 +93,21 @@ PTRGI 输入广播到 ADC0+ADC1，通过 `adc16_enable_pmt_queue` 隔离各自�
 | PWM1 pair 1 (同步整流) | Buck-Boost (可选) |
 | PWM0 pair 2 (半桥 A) | LCC 全桥 |
 | PWM0 pair 3 (半桥 B) | LCC 全桥 |
+| GPTMR0 | 外环定时触发（50kHz 电压环 + 功率环） |
 
-### 2.6 PWM-ADC 触发链路详解
+### 2.6 中断资源分配
 
-#### 2.6.1 初始化顺序
+| 中断 | 优先级 | 用途 |
+|------|--------|------|
+| ADC0 PMT (IRQ 58) | 1 | ADC0 DMA snapshot + raw cache |
+| ADC1 PMT (IRQ 59) | 1 | ADC1 DMA snapshot + raw cache |
+| PWM1 Reload | 1 | 电流内环 (200kHz) |
+| PWM0 Reload | 2 | LCC 电流内环 (148kHz) |
+| GPTMR0 | 3 | 电压环 + 功率环 (50kHz) |
+
+### 2.7 PWM-ADC 触发链路详解
+
+#### 2.7.1 初始化顺序
 
 ```
 board_init()         → 引脚配置（ADC 引脚设为模拟输入，PAD_CTL=0）
@@ -107,7 +118,7 @@ hrpwm_start_all()    → PWM 启动，CMP8 开始产生触发信号
 
 ADC 校准在 PWM 未启动时进行，避免开关噪声影响精度。
 
-#### 2.6.2 CMP8 触发比较器
+#### 2.7.2 CMP8 触发比较器
 
 ```c
 // drv_hrpwm.c: hrpwm_config_trigger_cmp_impl()
@@ -120,7 +131,7 @@ pwm_config_output_channel(base, 8, &out_cfg);  // CH8 输出通道
 - 中心对齐模式下每个 PWM 周期产生两次匹配（递增 + 递减）
 - CMP8 匹配事件通过 CH8REF 输出到 TRGM
 
-#### 2.6.3 TRGM 路由
+#### 2.7.3 TRGM 路由
 
 ```c
 // app_adc.c: app_adc_init()
@@ -133,7 +144,7 @@ intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
 | PWM0_CH8REF | PWM0 CMP8 | PTRGI0A | 0 | ADC0 + ADC1（共享） |
 | PWM1_CH8REF | PWM1 CMP8 | PTRGI1A | 3 | ADC0 + ADC1（共享） |
 
-#### 2.6.4 PMT 队列隔离
+#### 2.7.4 PMT 队列隔离
 
 PTRGI 输入广播到所有 ADC 实例。通过 enable/disable 控制各自响应：
 
@@ -149,7 +160,7 @@ for (t = 0; t < ADC_PMT_MAX_TRIG; t++) {
 - ADC0 只响应 trig_ch=0（PWM0），忽略 trig_ch=3
 - ADC1 只响应 trig_ch=3（PWM1），忽略 trig_ch=0
 
-#### 2.6.5 DMA 数据传输
+#### 2.7.5 DMA 数据传输
 
 每个触发通道在 DMA 缓冲区中占 4 个 uint32_t 槽位：
 
@@ -169,7 +180,7 @@ DMA 数据结构（`adc16_pmt_dma_data_t`）：
 | trig_ch [28:25] | 触发通道号 |
 | cycle_bit [31] | 周期位（1=新数据有效） |
 
-#### 2.6.6 ISR 数据读取
+#### 2.7.6 ISR 数据读取
 
 ```c
 // drv_adc.c: adc_generic_isr()
@@ -183,7 +194,7 @@ DMA 数据结构（`adc16_pmt_dma_data_t`）：
 8. 调用回调
 ```
 
-#### 2.6.7 已知硬件约束
+#### 2.7.7 已知硬件约束
 
 **PMT 首次转换结果异常：** HPM5361 ADC16 在 PMT 模式下，每个触发周期的第一个通道（位置 0）转换结果恒为 ~0x8000（VREF/2），不随输入变化。位置 1-3 正常。
 
@@ -231,7 +242,7 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 
 ### 4.1 Buck-Boost 控制器 (`ctrl_buckboost`)
 
-对象 `ctrl_buckboost_t { params, state }` 封装四开关拓扑的控制。
+对象 `ctrl_buckboost_t { params, state }` 封装四开关拓扑的控制。采用**双缓冲 + 分离 ISR** 多速率级联架构。
 
 | 项目 | 说明 |
 |------|------|
@@ -242,6 +253,16 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 | 输出 | 主半桥占空比 [0, 1]，直接调用 `hrpwm_set_duty()` |
 | 算法 | 电压 PID + 电流 PID + 前馈 |
 | 软启动 | `algo_ramp` 从 0 ramp 到目标 |
+
+**环路分层：**
+
+| 环路 | ISR 触发源 | 频率 | 算法 | 输入 | 输出 |
+|------|-----------|------|------|------|------|
+| 电流内环 | PWM1 Reload | 200kHz | LPF + 增量式 PI | I_L (cache) | duty → `hrpwm_set_duty()` |
+| 电压外环 | GPTMR | 50kHz | LPF + 增量式 PI | V_LINK, V_IN | current_ref → `s_staging` |
+| 功率外环 | GPTMR | 50kHz | LPF + PI/P | V_IN×I_IN | power_limit → `s_staging` |
+
+**setpoint 传递：** 外环计算结果写入 `s_staging`，计算完毕后原子 swap 到 `s_active`。内环每周期原子读取 `s_active.current_ref`。
 
 ### 4.2 LCC 控制器 (`ctrl_lcc`)
 
@@ -254,6 +275,15 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 | 输入 | I_COIL, I_LF |
 | 输出 | 频率 + 移相角，直接调用 `hrpwm_set_frequency()` / `hrpwm_set_phase()` |
 | 算法 | PLL 锁频 + 线圈电流 PID |
+
+**环路分层（与 Buck-Boost 独立）：**
+
+| 环路 | ISR 触发源 | 频率 | 算法 | 输出 |
+|------|-----------|------|------|------|
+| 线圈电流内环 | PWM0 Reload | 148kHz | LPF + 增量式 PI | 移相角 |
+| 频率跟踪 | GPTMR 或分频 | ~10kHz | PLL | 频率 |
+
+LCC 的电流内环同样使用双缓冲架构，通过独立的 `s_active_lcc` / `s_staging_lcc` 传递 setpoint。
 
 ### 4.3 故障管理 (`ctrl_fault`)
 
@@ -295,18 +325,47 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 
 ## 6. 数据流
 
-### 6.1 控制数据流
+### 6.1 多环路控制数据流（双缓冲 + 分离 ISR 架构）
 
 ```
-ADC PMT (Platform)
-  → V_IN, V_LINK, I_L, I_COIL, I_LF 测量值
-  → ctrl_buckboost_step() / ctrl_lcc_step() (Control)
-  → 计算占空比 / 频率 / 相位
-  → hrpwm_set_duty() / hrpwm_set_frequency() / hrpwm_set_phase() (Platform)
-  → PWM 硬件
+ADC1 PMT ISR (200kHz, priority 1)
+  → DMA snapshot + validate
+  → pmt_raw_cache[I_L, V_LINK, I_IN]           (仅 raw 缓存写入)
+
+PWM1 Reload ISR (200kHz, priority 1)
+  → read pmt_raw_cache[I_L]
+  → LPF 滤波 → 增量式 PI → set_duty()          (固定 ~180ns)
+  → 读 s_active.current_ref                     (atomic read)
+
+GPTMR ISR (50kHz, priority 3)                   (独立定时器，与 PWM 相位同步)
+  → 电压环: LPF + PI → s_staging.current_ref
+  → 功率环: LPF + PI → s_staging.power_limit
+  → s_active = s_staging                        (atomic swap)
+
+主循环 (~1kHz)
+  → 状态机推进、故障检查、CAN 通信、遥测上报
 ```
 
-### 6.2 状态与故障数据流
+### 6.2 双缓冲 setpoint 传递
+
+外环通过双缓冲结构向内环传递设定值，消除 ISR 间的数据竞争：
+
+```c
+typedef struct {
+    float current_ref;      // 电流环设定值（电压环输出）
+    float voltage_limit;    // 电压限幅值
+    float power_limit;      // 功率限幅值
+} ctrl_setpoints_t;
+
+static volatile ctrl_setpoints_t s_active;   // 内环读取（atomic read）
+static ctrl_setpoints_t           s_staging; // 外环写入（低优先级 ISR 内）
+```
+
+- 内环（PWM1 ISR）每周期原子读取 `s_active.current_ref`（单 word 读取，天然原子）
+- 外环（GPTMR ISR）计算完毕后整体写入 `s_active = s_staging`（3 个 word，短临界区）
+- 无需互斥锁：写端在低优先级 ISR 中，读端在高优先级 ISR 中，不存在同时写的情况
+
+### 6.3 状态与故障数据流
 
 ```
 app_comm_tick() (Application) 接收 CAN 命令
@@ -320,13 +379,64 @@ ctrl_fault_check() (Control)
 
 ---
 
-## 7. 任务调度
+## 7. 任务调度与中断架构
+
+### 7.1 中断优先级与职责
+
+| 优先级 | 中断源 | 频率 | 职责 | 耗时 |
+|--------|--------|------|------|------|
+| **1** (最高) | ADC0 PMT | 148kHz | DMA snapshot + raw cache (ADC0 通道) | ~137ns |
+| **1** | ADC1 PMT | 200kHz | DMA snapshot + raw cache (ADC1 通道) | ~137ns |
+| **1** | PWM1 Reload | 200kHz | **电流内环**：LPF + 增量式 PI → set_duty | ~180ns |
+| **2** | PWM0 Reload | 148kHz | LCC 控制（如需要） | ~180ns |
+| **3** (最低) | GPTMR | 50kHz | **电压环 + 功率环**：计算 → 双缓冲写入 | ~800ns |
+
+### 7.2 执行时序图
+
+```
+PWM1 周期 N (5μs):
+  ┌─ ADC1 PMT ISR ─┐        ┌─ PWM1 Reload ISR ─┐
+  │ 137ns (priority1)│        │ 180ns (priority 1) │
+  └──────────────────┘        └────────────────────┘
+  0μs     0.5μs              2.5μs    2.7μs       5μs
+  ↑ 触发                      ↑ 中心点             ↑ 下一周期
+
+GPTMR ISR (20μs 周期, priority 3):
+  ┌─ ADC1 ─┐┌─ GPTMR ──────────────────┐
+  │ 137ns   ││ 800ns (priority 3)       │
+  │(抢占等待)││ 电压环 + 功率环           │
+  └─────────┘└──────────────────────────┘
+  GPTMR 触发  ADC1 完成后立即执行         执行完毕
+```
+
+### 7.3 关键设计决策
+
+**为什么电流环和 ADC 使用同一优先级？**
+
+- 同优先级中断不互相抢占（PLIC 规则），保证 ADC ISR 不会打断电流环计算
+- 同优先级按 IRQ 号排队：ADC (IRQ 58/59) 先于 PWM1 执行
+- 最坏情况：ADC0 + ADC1 + PWM1 串行 = 137 + 137 + 180 = 454ns << 5μs 周期
+
+**为什么外环使用更低优先级？**
+
+- 外环 ISR (GPTMR, priority 3) 执行期间被内环 (PWM1, priority 1) 抢占是安全的
+- 被抢占一次仅增加 ~180ns 延迟，20μs 周期内最多被抢占 4 次 = 最坏 800 + 720 = 1,520ns << 20μs
+- 内环永远不会被外环抢占，保证固定 180ns 执行时间
+
+**为什么不把外环放在快 ISR 内用软件分频？**
+
+- 软件分频会导致快 ISR 出现 5x 执行时间 jitter（180ns → 880ns）
+- 分离 ISR 保证快 ISR 始终固定 180ns，完全确定性
+- 外环延迟由 GPTMR jitter（~50-200ns）决定，对 50kHz 外环来说仅 1% 额外延迟，可忽略
+
+### 7.4 主循环调度
 
 | 层级 | 触发源 | 典型频率 | 典型任务 |
 |------|--------|----------|---------|
-| Fast | PWM reload IRQ | ~200kHz | 电流环 step |
-| Medium | `app_run_once()` | ~1kHz | 状态机推进、故障检查 |
-| Slow | 分频 | ~10Hz | CAN 通信、遥测上报 |
+| Fast | PWM1 Reload IRQ | 200kHz | 电流环 step (LPF + PI) |
+| Medium | GPTMR IRQ | 50kHz | 电压环 + 功率环 step |
+| Slow | `app_run_once()` | ~1kHz | 状态机推进、故障检查 |
+| Slowest | 分频 | ~10Hz | CAN 通信、遥测上报 |
 
 `app_run_once()` 内部：
 ```
@@ -338,30 +448,51 @@ app_comm_tick()       // CAN 帧处理 + 遥测
 
 ## 8. 时间预算与控制策略
 
-### 8.1 PWM1 (200kHz) 周期分析
+### 8.1 多环路时序预算总览
 
-T_pwm = 5μs。ADC1 一次 PMT 采 4 路（含 dummy），有效 3 路，总转换时间约 3.1μs。余量约 1.5~2μs。
+| 环路 | 频率 | 周期 | ISR 耗时 | CPU 占用 |
+|------|------|------|---------|---------|
+| 电流内环 (PWM1 ISR) | 200kHz | 5μs | 180ns | 3.6% |
+| ADC 采样 (ADC0+ADC1 ISR) | 200+148kHz | — | 274ns (合计) | 5.5% |
+| 电压环 + 功率环 (GPTMR ISR) | 50kHz | 20μs | 800ns | 4.0% |
+| **总计** | | | | **13.1%** |
 
-### 8.2 推荐策略
+### 8.2 电流内环 (200kHz)
 
-**PWM1 + ADC1 (Buck-Boost)：每周期采样，每 4 周期更新一次**
+```
+PWM1 Reload ISR: 500ns (PLIC) + 180ns (计算) + 200ns (返回) = 880ns
+下一个触发: 5,000ns
+余量: 4,120ns (82.4%)
+```
 
-- 每个周期都进入 ADC PMT callback，锁存 I_L 样本
-- 每个周期都进入 PWM reload IRQ
-- 每 4 个周期执行一次 PI 并更新 duty
-- 更新频率 = 50kHz，周期 = 20μs
+逐周期执行，不跳过任何周期。LPF + 增量式 PI 仅 ~65 条 RISC-V 指令。
 
-| 更新间隔 | 控制更新频率 | 控制更新周期 |
-|----------|--------------|--------------|
-| 每 4 周期 | 50kHz | 20μs |
+### 8.3 电压环 (50kHz)
 
-### 8.3 PWM0 (148kHz) 周期分析
+```
+GPTMR ISR: 500ns (PLIC) + 400ns (电压环) + 400ns (功率环) + 200ns (返回) = 1,500ns
+最坏情况（被 PWM1 抢占 4 次）: 1,500 + 4×180 = 2,220ns
+下一个触发: 20,000ns
+余量: 17,780ns (88.9%)
+```
 
-T_pwm ≈ 6.76μs。ADC1 采 4 路（含 dummy），有效 3 路，总转换时间约 3.1μs。余量约 3.6μs。
+### 8.4 PWM0 (148kHz) 分析
 
-### 8.4 不建议的方案
+T_pwm ≈ 6.76μs。ADC0 PMT 采 4 路（含 dummy），有效 3 路，总转换时间约 3.1μs。余量约 3.6μs。
 
-在 200kHz 下对 ADC1 做同一周期内"采样→转换→计算→更新 duty"——余量仅约 1.5μs，不适合作为稳定设计。建议同样采用分周期更新策略。
+### 8.5 不建议的方案
+
+- 在 200kHz ISR 内同时执行电流环 + 电压环 + 功率环：导致 ISR 耗时 jitter 达 5x
+- 使用独立 GPTMR 作为电流环触发源：GPTMR 与 PWM 无硬件同步，存在相位漂移
+- 在 200kHz 下做全通道 float 换算 + 滤波：实测导致 ADC1 捕获率降至 86.9%（详见 `doc/ADC_PMT_ISR_CHAIN_ANALYSIS.md`）
+
+### 8.6 控制器算法选型
+
+| 环路 | 滤波器 | 控制器 | 理由 |
+|------|--------|--------|------|
+| 电流环 (200kHz) | 1 阶 LPF (~20ns) | 增量式 PI (~100ns) | 最低延迟，无积分器 windup |
+| 电压环 (50kHz) | MA (N=4, ~35ns) | 增量式 PI | 宽裕时间预算，MA 够用 |
+| 功率环 (50kHz) | LPF | PI 或 P | 功率环带宽低，简单控制器即可 |
 
 ---
 
@@ -381,8 +512,17 @@ T_pwm ≈ 6.76μs。ADC1 采 4 路（含 dummy），有效 3 路，总转换时�
 | Application | `app_entry.c` | 唯一入口 |
 | Application | `app_control.c` | 状态机 + 任务编排 |
 | Application | `app_comm.c` | CAN 通信 |
-| Control | `ctrl_buckboost.c` | Buck-Boost 控制器 |
-| Control | `ctrl_lcc.c` | LCC 控制器 |
+| Control | `ctrl_buckboost.c` | Buck-Boost 控制器（电流环 + 电压环 + 功率环） |
+| Control | `ctrl_lcc.c` | LCC 控制器（电流环 + PLL） |
 | Control | `ctrl_fault.c` | 故障 + 保护 |
-| Algorithm | `algo_pid/pll/ramp/rms/ffd/filter` | 算法库 |
-| Platform | `app_hrpwm/app_adc/app_sampling_sync/app_can` | 硬件能力 |
+| Algorithm | `algo_pid.h` | PID 控制器（支持增量式模式） |
+| Algorithm | `algo_filter.h` | 滤波库（LPF / MA / FIR / Biquad / Median） |
+| Algorithm | `algo_pll/ramp/rms/ffd` | 辅助算法库 |
+| Platform | `app_hrpwm.c` | HRPWM 初始化 + PWM reload ISR 注册 |
+| Platform | `app_adc.c` | ADC PMT 初始化 + DMA + 回调 |
+| Platform | `app_gptmr.c` | GPTMR 初始化 + 外环定时 ISR（待实现） |
+| Driver | `drv_hrpwm.c` | HRPWM 驱动（含 PWM0/PWM1 reload ISR） |
+| Driver | `drv_adc.c` | ADC 驱动（含 ADC0/ADC1 PMT ISR） |
+| Driver | `drv_gpwm.c` | GPTMR 驱动 |
+| Interface | `intf_hrpwm.h` | HRPWM 接口契约 |
+| Interface | `intf_gpwm.h` | GPTMR 接口契约 |

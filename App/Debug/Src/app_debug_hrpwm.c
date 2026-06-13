@@ -3,9 +3,9 @@
 #include "app_debug_rtt.h"
 #include "app_hrpwm.h"
 #include "board.h"
-#include "drv_hrpwm.h"
 #include "hpm_clock_drv.h"
 #include "hpm_pwm_drv.h"
+#include "hpm_soc.h"
 #include "intf_clock.h"
 #include "intf_hrpwm.h"
 
@@ -22,10 +22,10 @@ typedef struct {
 } app_dbg_hrpwm_probe_t;
 
 static const app_dbg_hrpwm_probe_t app_dbg_hrpwm_probes[] = {
-    {.base = BOARD_APP_HRPWM0, .name = "PWM0_PAIR0", .pwm_index = BOARD_APP_HRPWM_PWM0_PAIR0_OUT},
-    {.base = BOARD_APP_HRPWM0, .name = "PWM0_PAIR1", .pwm_index = BOARD_APP_HRPWM_PWM0_PAIR1_OUT},
-    {.base = BOARD_APP_HRPWM1, .name = "PWM1_PAIR0", .pwm_index = BOARD_APP_HRPWM_PWM1_PAIR0_OUT},
-    {.base = BOARD_APP_HRPWM1, .name = "PWM1_PAIR1", .pwm_index = BOARD_APP_HRPWM_PWM1_PAIR1_OUT},
+    {.base = HPM_PWM0, .name = "PWM0_PAIR0", .pwm_index = 0U},
+    {.base = HPM_PWM0, .name = "PWM0_PAIR1", .pwm_index = 2U},
+    {.base = HPM_PWM1, .name = "PWM1_PAIR0", .pwm_index = 4U},
+    {.base = HPM_PWM1, .name = "PWM1_PAIR1", .pwm_index = 6U},
 };
 
 static volatile uint32_t pwm_irq_count[PWM_IRQ_INSTANCE_COUNT] = {0};
@@ -363,8 +363,8 @@ void app_debug_dump_hrpwm_freq(void)
 {
     uint32_t clk = clock_get_frequency(clock_mot0);
     uint32_t ahb = clock_get_frequency(clock_ahb);
-    uint32_t r0 = pwm_get_reload_val(BOARD_APP_HRPWM0);
-    uint32_t r1 = pwm_get_reload_val(BOARD_APP_HRPWM1);
+    uint32_t r0 = pwm_get_reload_val(HPM_PWM0);
+    uint32_t r1 = pwm_get_reload_val(HPM_PWM1);
     uint32_t f0 = (r0 > 0U) ? clk / (r0 + 1U) : 0U;
     uint32_t f1 = (r1 > 0U) ? clk / (r1 + 1U) : 0U;
 

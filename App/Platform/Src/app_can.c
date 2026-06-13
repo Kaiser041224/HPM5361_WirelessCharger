@@ -56,10 +56,10 @@ static void app_can_driver_register_once(void)
     registered = true;
 }
 
-extern void drv_can_register(void);
+extern void hpm_can_driver_register(void);
 void app_can_register_driver(void)
 {
-    drv_can_register();
+    hpm_can_driver_register();
     app_can_driver_register_once();
 }
 

@@ -2,13 +2,14 @@
 
 #include "app_can.h"
 #include "app_debug_rtt.h"
-#include "drv_mcan.h"
 #include "intf_can.h"
 #include "intf_clock.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+extern void hpm_can_driver_register(void);
 
 static void can_test_rx_callback(const app_can_msg_t *msg)
 {
@@ -136,7 +137,7 @@ void app_debug_can_loopback_test(void)
     app_debug_printf("\r\n[CAN] === CAN Internal Loopback Test ===\r\n");
 
     app_can_deinit();
-    drv_can_register();
+    hpm_can_driver_register();
     memset((void *) &lb_rx_msg, 0, sizeof(lb_rx_msg));
 
     intf_can_cfg_t cfg = {

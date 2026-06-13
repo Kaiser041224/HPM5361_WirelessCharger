@@ -1,59 +1,14 @@
-#include "intf_pwm.h"
 #include "intf_hrpwm.h"
-#include "intf_gpwm.h"
+#include "intf_gptmr.h"
 #include "intf_adc.h"
 #include "intf_trgm.h"
 #include "intf_uart.h"
-#include "intf_spi.h"
-#include "intf_i2c.h"
 #include "intf_gpio.h"
 #include "intf_ws2812.h"
 #include "intf_can.h"
+#include "intf_synt.h"
 
 #include <stddef.h>
-
-/* ============================================================================
- * PWM Interface
- * ============================================================================ */
-
-static const intf_pwm_ops_t *pwm_ops = NULL;
-
-int intf_pwm_register(const intf_pwm_ops_t *ops)
-{
-    if (ops == NULL) return -1;
-    pwm_ops = ops;
-    return 0;
-}
-
-int intf_pwm_init(intf_pwm_ch_t ch, const intf_pwm_cfg_t *cfg)
-{
-    if (pwm_ops && pwm_ops->init) return pwm_ops->init(ch, cfg);
-    return -1;
-}
-
-int intf_pwm_set_duty(intf_pwm_ch_t ch, uint8_t duty_percent)
-{
-    if (pwm_ops && pwm_ops->set_duty) return pwm_ops->set_duty(ch, duty_percent);
-    return -1;
-}
-
-int intf_pwm_set_frequency(intf_pwm_ch_t ch, uint32_t freq_hz)
-{
-    if (pwm_ops && pwm_ops->set_frequency) return pwm_ops->set_frequency(ch, freq_hz);
-    return -1;
-}
-
-int intf_pwm_start(intf_pwm_ch_t ch)
-{
-    if (pwm_ops && pwm_ops->start) return pwm_ops->start(ch);
-    return -1;
-}
-
-int intf_pwm_stop(intf_pwm_ch_t ch)
-{
-    if (pwm_ops && pwm_ops->stop) return pwm_ops->stop(ch);
-    return -1;
-}
 
 /* ============================================================================
  * HRPWM Interface
@@ -190,81 +145,80 @@ int intf_hrpwm_config_trigger_cmp(intf_hrpwm_inst_t inst, uint8_t cmp_index, flo
 }
 
 /* ============================================================================
- * GPWM Interface
+ * GPTMR Interface
  * ============================================================================ */
 
-static const intf_gpwm_t *gpwm_ops = NULL;
+#define GPTMR_INSTANCE_COUNT (4U)
 
-int intf_gpwm_register(const intf_gpwm_t *ops)
+static const intf_gptmr_t *gptmr_ops[GPTMR_INSTANCE_COUNT] = {NULL};
+
+int intf_gptmr_register(const intf_gptmr_t *ops)
 {
-    if (ops == NULL) return -1;
-    gpwm_ops = ops;
+    if (ops == NULL || ops->instance_id >= GPTMR_INSTANCE_COUNT) return -1;
+    gptmr_ops[ops->instance_id] = ops;
     return 0;
 }
 
-int intf_gpwm_init(intf_gpwm_ch_t ch, const intf_gpwm_cfg_t *cfg)
+static const intf_gptmr_t *gptmr_get_ops(intf_gptmr_ch_t ch)
 {
-    if (gpwm_ops && gpwm_ops->init) return gpwm_ops->init(ch, cfg);
+    uint8_t inst = ch / 4U;
+    if (inst >= GPTMR_INSTANCE_COUNT || gptmr_ops[inst] == NULL) return NULL;
+    return gptmr_ops[inst];
+}
+
+int intf_gptmr_init(intf_gptmr_ch_t ch, const intf_gptmr_cfg_t *cfg)
+{
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->init) return ops->init(ch, cfg);
     return -1;
 }
 
-int intf_gpwm_set_duty(intf_gpwm_ch_t ch, float duty)
+int intf_gptmr_start(intf_gptmr_ch_t ch)
 {
-    if (gpwm_ops && gpwm_ops->set_duty) return gpwm_ops->set_duty(ch, duty);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->start) return ops->start(ch);
     return -1;
 }
 
-int intf_gpwm_set_frequency(intf_gpwm_ch_t ch, uint32_t frequency_hz)
+int intf_gptmr_stop(intf_gptmr_ch_t ch)
 {
-    if (gpwm_ops && gpwm_ops->set_frequency) return gpwm_ops->set_frequency(ch, frequency_hz);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->stop) return ops->stop(ch);
     return -1;
 }
 
-int intf_gpwm_start(intf_gpwm_ch_t ch)
+int intf_gptmr_set_duty(intf_gptmr_ch_t ch, float duty)
 {
-    if (gpwm_ops && gpwm_ops->start) return gpwm_ops->start(ch);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->set_duty) return ops->set_duty(ch, duty);
     return -1;
 }
 
-int intf_gpwm_stop(intf_gpwm_ch_t ch)
+int intf_gptmr_set_frequency(intf_gptmr_ch_t ch, uint32_t frequency_hz)
 {
-    if (gpwm_ops && gpwm_ops->stop) return gpwm_ops->stop(ch);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->set_frequency) return ops->set_frequency(ch, frequency_hz);
     return -1;
 }
 
-int intf_gpwm_force_low(intf_gpwm_ch_t ch)
+int intf_gptmr_force_low(intf_gptmr_ch_t ch)
 {
-    if (gpwm_ops && gpwm_ops->force_low) return gpwm_ops->force_low(ch);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->force_low) return ops->force_low(ch);
     return -1;
 }
 
-int intf_gpwm_force_release(intf_gpwm_ch_t ch)
+int intf_gptmr_force_release(intf_gptmr_ch_t ch)
 {
-    if (gpwm_ops && gpwm_ops->force_release) return gpwm_ops->force_release(ch);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->force_release) return ops->force_release(ch);
     return -1;
 }
 
-int intf_gpwm_capture_init(intf_gpwm_ch_t ch, const intf_gpwm_capture_cfg_t *cfg)
+int intf_gptmr_capture_poll(intf_gptmr_ch_t ch, intf_gptmr_capture_t *capture)
 {
-    if (gpwm_ops && gpwm_ops->capture_init) return gpwm_ops->capture_init(ch, cfg);
-    return -1;
-}
-
-int intf_gpwm_capture_start(intf_gpwm_ch_t ch)
-{
-    if (gpwm_ops && gpwm_ops->capture_start) return gpwm_ops->capture_start(ch);
-    return -1;
-}
-
-int intf_gpwm_capture_stop(intf_gpwm_ch_t ch)
-{
-    if (gpwm_ops && gpwm_ops->capture_stop) return gpwm_ops->capture_stop(ch);
-    return -1;
-}
-
-int intf_gpwm_capture_poll(intf_gpwm_ch_t ch, intf_gpwm_capture_t *capture)
-{
-    if (gpwm_ops && gpwm_ops->capture_poll) return gpwm_ops->capture_poll(ch, capture);
+    const intf_gptmr_t *ops = gptmr_get_ops(ch);
+    if (ops && ops->capture_poll) return ops->capture_poll(ch, capture);
     return -1;
 }
 
@@ -411,86 +365,6 @@ int intf_uart_receive(intf_uart_port_t port, uint8_t *data, size_t len, uint32_t
 int intf_uart_register_rx_callback(intf_uart_port_t port, intf_uart_rx_cb_t cb)
 {
     if (uart_ops && uart_ops->register_rx_callback) return uart_ops->register_rx_callback(port, cb);
-    return -1;
-}
-
-/* ============================================================================
- * SPI Interface
- * ============================================================================ */
-
-static const intf_spi_ops_t *spi_ops = NULL;
-
-int intf_spi_register(const intf_spi_ops_t *ops)
-{
-    if (ops == NULL) return -1;
-    spi_ops = ops;
-    return 0;
-}
-
-int intf_spi_init(intf_spi_port_t port, const intf_spi_cfg_t *cfg)
-{
-    if (spi_ops && spi_ops->init) return spi_ops->init(port, cfg);
-    return -1;
-}
-
-int intf_spi_transfer(intf_spi_port_t port, const uint8_t *tx, uint8_t *rx, size_t len, uint32_t timeout_ms)
-{
-    if (spi_ops && spi_ops->transfer) return spi_ops->transfer(port, tx, rx, len, timeout_ms);
-    return -1;
-}
-
-int intf_spi_transmit(intf_spi_port_t port, const uint8_t *data, size_t len, uint32_t timeout_ms)
-{
-    if (spi_ops && spi_ops->transmit) return spi_ops->transmit(port, data, len, timeout_ms);
-    return -1;
-}
-
-int intf_spi_receive(intf_spi_port_t port, uint8_t *data, size_t len, uint32_t timeout_ms)
-{
-    if (spi_ops && spi_ops->receive) return spi_ops->receive(port, data, len, timeout_ms);
-    return -1;
-}
-
-/* ============================================================================
- * I2C Interface
- * ============================================================================ */
-
-static const intf_i2c_ops_t *i2c_ops = NULL;
-
-int intf_i2c_register(const intf_i2c_ops_t *ops)
-{
-    if (ops == NULL) return -1;
-    i2c_ops = ops;
-    return 0;
-}
-
-int intf_i2c_init(intf_i2c_port_t port, const intf_i2c_cfg_t *cfg)
-{
-    if (i2c_ops && i2c_ops->init) return i2c_ops->init(port, cfg);
-    return -1;
-}
-
-int intf_i2c_master_transmit(intf_i2c_port_t port, uint16_t addr, const uint8_t *data, size_t len, uint32_t timeout_ms)
-{
-    if (i2c_ops && i2c_ops->master_transmit) return i2c_ops->master_transmit(port, addr, data, len, timeout_ms);
-    return -1;
-}
-
-int intf_i2c_master_receive(intf_i2c_port_t port, uint16_t addr, uint8_t *data, size_t len, uint32_t timeout_ms)
-{
-    if (i2c_ops && i2c_ops->master_receive) return i2c_ops->master_receive(port, addr, data, len, timeout_ms);
-    return -1;
-}
-
-int intf_i2c_write_reg(intf_i2c_port_t port, uint16_t addr, uint16_t reg, uint8_t reg_size, const uint8_t *data, size_t len)
-{
-    if (i2c_ops && i2c_ops->write_reg) return i2c_ops->write_reg(port, addr, reg, reg_size, data, len);
-    return -1;
-}
-
-int intf_i2c_read_reg(intf_i2c_port_t port, uint16_t addr, uint16_t reg, uint8_t reg_size, uint8_t *data, size_t len)
-{
-    if (i2c_ops && i2c_ops->read_reg) return i2c_ops->read_reg(port, addr, reg, reg_size, data, len);
     return -1;
 }
 
@@ -705,4 +579,59 @@ int intf_can_get_timestamp(intf_can_inst_t inst,
     if (inst >= CAN_INSTANCE_COUNT || can_ops[inst] == NULL) return -1;
     if (can_ops[inst]->get_timestamp) return can_ops[inst]->get_timestamp(tx_evt, ts);
     return -1;
+}
+
+/* ============================================================================
+ * SYNT Interface
+ * ============================================================================ */
+
+static const intf_synt_t *synt_ops = NULL;
+
+int intf_synt_register(const intf_synt_t *ops)
+{
+    if (ops == NULL) return -1;
+    synt_ops = ops;
+    return 0;
+}
+
+int intf_synt_init(const intf_synt_cfg_t *cfg)
+{
+    if (synt_ops && synt_ops->init) return synt_ops->init(cfg);
+    return -1;
+}
+
+int intf_synt_start(void)
+{
+    if (synt_ops && synt_ops->start) return synt_ops->start();
+    return -1;
+}
+
+int intf_synt_stop(void)
+{
+    if (synt_ops && synt_ops->stop) return synt_ops->stop();
+    return -1;
+}
+
+int intf_synt_reset(void)
+{
+    if (synt_ops && synt_ops->reset) return synt_ops->reset();
+    return -1;
+}
+
+int intf_synt_set_reload(uint32_t reload_count)
+{
+    if (synt_ops && synt_ops->set_reload) return synt_ops->set_reload(reload_count);
+    return -1;
+}
+
+int intf_synt_set_compare(intf_synt_ch_t ch, uint32_t cmp_count)
+{
+    if (synt_ops && synt_ops->set_compare) return synt_ops->set_compare(ch, cmp_count);
+    return -1;
+}
+
+uint32_t intf_synt_get_count(void)
+{
+    if (synt_ops && synt_ops->get_count) return synt_ops->get_count();
+    return 0;
 }

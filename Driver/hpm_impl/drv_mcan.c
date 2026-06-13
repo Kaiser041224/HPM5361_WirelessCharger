@@ -14,7 +14,6 @@
  */
 
 #include "intf_can.h"
-#include "drv_mcan.h"
 #include "board.h"
 
 #include "hpm_mcan_drv.h"
@@ -91,12 +90,12 @@ typedef struct {
     void         *irq_user_data;
 } mcan_instance_t;
 
-uint32_t drv_can_enter_critical(void)
+static uint32_t drv_can_enter_critical(void)
 {
     return read_clear_csr(CSR_MSTATUS, CSR_MSTATUS_MIE_MASK);
 }
 
-void drv_can_exit_critical(uint32_t irq_state)
+static void drv_can_exit_critical(uint32_t irq_state)
 {
     write_csr(CSR_MSTATUS, irq_state);
 }
@@ -971,7 +970,7 @@ static const intf_can_t mcan3_ops = {
  * 驱动注册 — 对 App 层暴露的唯一入口
  * ============================================================================ */
 
-void drv_can_register(void)
+void hpm_can_driver_register(void)
 {
     mcan_init_instance_table();
 
