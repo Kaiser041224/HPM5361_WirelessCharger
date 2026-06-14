@@ -42,7 +42,8 @@ typedef enum {
  * PMT Default Configuration
  * ============================================================================ */
 
-#define APP_ADC_PMT_TRIGGER_CMP_INDEX   (8U)
+#define APP_ADC_PMT_TRIGGER_CMP_INDEX_PWM0 (8U)
+#define APP_ADC_PMT_TRIGGER_CMP_INDEX_PWM1 (10U)
 #define APP_ADC_PMT_POSITION_RATIO_ADC0 (0.5f)
 #define APP_ADC_PMT_POSITION_RATIO_ADC1 (0.5f)
 #define APP_ADC_PMT_ADC0_TRIG_CH        (0U)

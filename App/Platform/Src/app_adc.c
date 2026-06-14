@@ -230,20 +230,23 @@ void app_adc_init(void)
      * Step 3: TRGM routing — connects PWM compare outputs to ADC
      *         preemption trigger inputs. PWM counters are NOT yet
      *         running, so no signal flows.
+     *
+     * PWM0 uses CMP8,  PWM1 uses CMP10 (avoid conflict with PAIR2
+     * which occupies CMP8/CMP9 on PWM1).
      * ================================================================ */
     (void)intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
-    (void)intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
+    (void)intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH10REF, INTF_TRGM_DST_ADC_PTRGI1A);
 
     /* ================================================================
-     * Step 4: HRPWM trigger compare — configures CMP8 shadow registers.
-     *         PWM counters are NOT running; CMP8 takes effect on first
+     * Step 4: HRPWM trigger compare — configures CMP shadow registers.
+     *         PWM counters are NOT running; CMP takes effect on first
      *         counter start (app_hrpwm_start_all).
      * ================================================================ */
-    (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_0,
-                                        APP_ADC_PMT_TRIGGER_CMP_INDEX,
+    (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_LCC,
+                                        APP_ADC_PMT_TRIGGER_CMP_INDEX_PWM0,
                                         APP_ADC_PMT_POSITION_RATIO_ADC0);
-    (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_1,
-                                        APP_ADC_PMT_TRIGGER_CMP_INDEX,
+    (void)intf_hrpwm_config_trigger_cmp(HRPWM_INST_BUCKBOOST,
+                                        APP_ADC_PMT_TRIGGER_CMP_INDEX_PWM1,
                                         APP_ADC_PMT_POSITION_RATIO_ADC1);
 }
 

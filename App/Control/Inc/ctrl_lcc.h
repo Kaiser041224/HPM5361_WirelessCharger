@@ -15,8 +15,6 @@
 #ifndef CTRL_LCC_H
 #define CTRL_LCC_H
 
-#include "ctrl_types.h"
-
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -24,13 +22,15 @@
 extern "C" {
 #endif
 
-/* ============================================================================
- * 类型定义
- * ============================================================================ */
+typedef struct {
+    float kp;
+    float ki;
+    float kd;
+    float integral_max;
+    float output_max;
+    float output_min;
+} ctrl_lcc_pid_params_t;
 
-/**
- * @brief LCC 工作模式。
- */
 typedef enum {
     LCC_MODE_IDLE        = 0, /**< 未激活 */
     LCC_MODE_OPEN_LOOP   = 1, /**< 开环 (固定频率/相位) */
@@ -53,7 +53,7 @@ typedef struct {
  * @brief LCC 控制参数 (运行时可调)。
  */
 typedef struct {
-    ctrl_pid_params_t      current_pid;  /**< 线圈电流 PID */
+    ctrl_lcc_pid_params_t  current_pid;  /**< 线圈电流 PID */
     ctrl_lcc_pll_params_t  pll;          /**< PLL 参数 */
     float phase_max_deg;                 /**< 移相上限 (degree) */
     float freq_min_hz;                   /**< 频率下限 (Hz) */

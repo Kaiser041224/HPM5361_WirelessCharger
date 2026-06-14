@@ -87,6 +87,9 @@ typedef struct {
     struct {
         int (*init_pair)(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg);
         int (*set_duty)(intf_hrpwm_ch_t ch, float duty);
+        int (*set_duty_direct)(intf_hrpwm_ch_t ch, float duty);
+        int (*set_duty_direct_dual)(intf_hrpwm_ch_t ch_a, float duty_a,
+                                    intf_hrpwm_ch_t ch_b, float duty_b);
         int (*set_frequency)(uint32_t frequency_hz);
         int (*set_jitter)(intf_hrpwm_ch_t ch, uint8_t jitter_cmp);
         int (*start)(intf_hrpwm_ch_t ch);
@@ -107,6 +110,9 @@ typedef struct {
 int intf_hrpwm_register(const intf_hrpwm_t *ops);
 int intf_hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg);
 int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty);
+int intf_hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty);
+int intf_hrpwm_set_duty_direct_dual(intf_hrpwm_ch_t ch_a, float duty_a,
+                                    intf_hrpwm_ch_t ch_b, float duty_b);
 int intf_hrpwm_set_frequency(intf_hrpwm_inst_t inst, uint32_t frequency_hz);
 int intf_hrpwm_set_jitter(intf_hrpwm_ch_t ch, uint8_t jitter_cmp);
 int intf_hrpwm_start(intf_hrpwm_ch_t ch);

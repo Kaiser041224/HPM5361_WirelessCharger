@@ -46,6 +46,21 @@ int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty)
     return -1;
 }
 
+int intf_hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty)
+{
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
+    if (ops && ops->set_duty_direct) return ops->set_duty_direct(ch, duty);
+    return -1;
+}
+
+int intf_hrpwm_set_duty_direct_dual(intf_hrpwm_ch_t ch_a, float duty_a,
+                                     intf_hrpwm_ch_t ch_b, float duty_b)
+{
+    const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch_a);
+    if (ops && ops->set_duty_direct_dual) return ops->set_duty_direct_dual(ch_a, duty_a, ch_b, duty_b);
+    return -1;
+}
+
 int intf_hrpwm_set_frequency(intf_hrpwm_inst_t inst, uint32_t frequency_hz)
 {
     if (inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[inst] == NULL) return -1;

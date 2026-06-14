@@ -682,6 +682,85 @@ static int hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty) {
     return 0;
 }
 
+static int hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty) {
+    const hrpwm_channel_map_t* map;
+    hrpwm_instance_state_t* inst_state;
+
+    map = hrpwm_get_channel_map(ch);
+    if ((map == NULL) || !hrpwm_is_valid_duty(duty)) {
+        return -1;
+    }
+
+    inst_state = &hrpwm_instances[map->instance];
+
+    if (!inst_state->channels[map->pwm_index].configured) {
+        return -1;
+    }
+
+    inst_state->channels[map->pwm_index].duty = duty;
+    return hrpwm_apply_duty(map);
+}
+
+static int hrpwm_set_duty_direct_dual(
+    intf_hrpwm_ch_t ch_a, float duty_a,
+    intf_hrpwm_ch_t ch_b, float duty_b)
+{
+    const hrpwm_channel_map_t* map_a;
+    const hrpwm_channel_map_t* map_b;
+    PWM_Type* base;
+    uint32_t full_reload;
+    hrpwm_cmp_pair_t cmp_a, cmp_b;
+
+    map_a = hrpwm_get_channel_map(ch_a);
+    map_b = hrpwm_get_channel_map(ch_b);
+    if (map_a == NULL || map_b == NULL) {
+        return -1;
+    }
+    if (map_a->instance != map_b->instance) {
+        return -1;
+    }
+    if (!hrpwm_is_valid_duty(duty_a) || !hrpwm_is_valid_duty(duty_b)) {
+        return -1;
+    }
+
+    hrpwm_instance_state_t* inst = &hrpwm_instances[map_a->instance];
+    if (!inst->channels[map_a->pwm_index].configured
+        || !inst->channels[map_b->pwm_index].configured) {
+        return -1;
+    }
+
+    base = hrpwm_get_base(map_a->instance);
+    if (base == NULL) {
+        return -1;
+    }
+
+    full_reload = hrpwm_get_full_reload(map_a->instance);
+
+    inst->channels[map_a->pwm_index].duty = duty_a;
+    inst->channels[map_b->pwm_index].duty = duty_b;
+
+    cmp_a = hrpwm_calc_cmp_pair(full_reload, duty_a,
+                                inst->channels[map_a->pwm_index].align);
+    cmp_b = hrpwm_calc_cmp_pair(full_reload, duty_b,
+                                inst->channels[map_b->pwm_index].align);
+
+    pwm_shadow_register_unlock(base);
+    pwm_cmp_update_cmp_value(base, map_a->cmp_start_index,
+                             cmp_a.cmp_begin & HRPWM_RELOAD_MAX_24BIT,
+                             (uint16_t)((cmp_a.cmp_begin >> 24U) & 0x0FU));
+    pwm_cmp_update_cmp_value(base, map_a->cmp_start_index + 1U,
+                             cmp_a.cmp_end & HRPWM_RELOAD_MAX_24BIT,
+                             (uint16_t)((cmp_a.cmp_end >> 24U) & 0x0FU));
+    pwm_cmp_update_cmp_value(base, map_b->cmp_start_index,
+                             cmp_b.cmp_begin & HRPWM_RELOAD_MAX_24BIT,
+                             (uint16_t)((cmp_b.cmp_begin >> 24U) & 0x0FU));
+    pwm_cmp_update_cmp_value(base, map_b->cmp_start_index + 1U,
+                             cmp_b.cmp_end & HRPWM_RELOAD_MAX_24BIT,
+                             (uint16_t)((cmp_b.cmp_end >> 24U) & 0x0FU));
+
+    return 0;
+}
+
 static int hrpwm_set_frequency_pwm0(uint32_t frequency_hz) {
     return hrpwm_apply_frequency(0, frequency_hz);
 }
@@ -1126,6 +1205,8 @@ static const intf_hrpwm_t hrpwm_ops_pwm0 = {
     .instance_id = 0,
     .init_pair = hrpwm_init_pair,
     .set_duty = hrpwm_set_duty,
+    .set_duty_direct = hrpwm_set_duty_direct,
+    .set_duty_direct_dual = hrpwm_set_duty_direct_dual,
     .set_frequency = hrpwm_set_frequency_pwm0,
     .set_jitter = hrpwm_set_jitter,
     .start = hrpwm_start,
@@ -1146,6 +1227,8 @@ static const intf_hrpwm_t hrpwm_ops_pwm1 = {
     .instance_id = 1,
     .init_pair = hrpwm_init_pair,
     .set_duty = hrpwm_set_duty,
+    .set_duty_direct = hrpwm_set_duty_direct,
+    .set_duty_direct_dual = hrpwm_set_duty_direct_dual,
     .set_frequency = hrpwm_set_frequency_pwm1,
     .set_jitter = hrpwm_set_jitter,
     .start = hrpwm_start,

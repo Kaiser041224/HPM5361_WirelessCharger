@@ -10,8 +10,6 @@
 #ifndef CTRL_FAULT_H
 #define CTRL_FAULT_H
 
-#include "ctrl_types.h"
-
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -19,9 +17,24 @@
 extern "C" {
 #endif
 
-/* ============================================================================
- * 保护阈值
- * ============================================================================ */
+typedef enum {
+    FAULT_NONE          = 0,
+    FAULT_OV_VIN        = (1 << 0),
+    FAULT_UV_VIN        = (1 << 1),
+    FAULT_OC_IIN        = (1 << 2),
+    FAULT_OC_IL         = (1 << 3),
+    FAULT_OV_VLINK      = (1 << 4),
+    FAULT_UV_VLINK      = (1 << 5),
+    FAULT_OC_ICOIL      = (1 << 6),
+    FAULT_OC_ILF        = (1 << 7),
+    FAULT_OT            = (1 << 8),
+    FAULT_ADC           = (1 << 9),
+    FAULT_PWM           = (1 << 10),
+    FAULT_CAN_BUSOFF    = (1 << 11),
+    FAULT_DRVPWR        = (1 << 12),
+    FAULT_HARDWARE      = (1 << 13),
+    FAULT_TIMEOUT       = (1 << 14),
+} fault_code_t;
 
 typedef struct {
     float v_in_ov_mv;

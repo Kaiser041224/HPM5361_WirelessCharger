@@ -299,7 +299,7 @@ void app_debug_hrpwm_run_tests(void)
     app_debug_printf("\r\n[HRPWM] === HRPWM Validation Tests ===\r\n");
     app_debug_dump_hrpwm_cmp();
 
-    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+    for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         app_hrpwm_set_duty(pair, 0.5f);
     }
 
@@ -311,12 +311,12 @@ void app_debug_hrpwm_run_tests(void)
     intf_clock_delay_ms(1000);
 
     app_debug_printf("\r\n[HRPWM] --- Test 1: PWM0 static initial phase = 180 deg ---\r\n");
-    app_hrpwm_stop(HRPWM_PAIR_0);
-    app_hrpwm_stop(HRPWM_PAIR_1);
+    app_hrpwm_stop(HRPWM_LCC_A);
+    app_hrpwm_stop(HRPWM_LCC_B);
     intf_clock_delay_ms(20);
     app_hrpwm_set_phase(0, 0, 1, 180.0f);
-    app_hrpwm_start(HRPWM_PAIR_0);
-    app_hrpwm_start(HRPWM_PAIR_1);
+    app_hrpwm_start(HRPWM_LCC_A);
+    app_hrpwm_start(HRPWM_LCC_B);
     app_debug_dump_hrpwm_cmp();
     intf_clock_delay_ms(4000);
 
@@ -330,17 +330,17 @@ void app_debug_hrpwm_run_tests(void)
     app_debug_printf("\r\n[HRPWM] --- Test 3: PWM0 frequency sweep with phase replay ---\r\n");
     app_hrpwm_set_phase(0, 0, 1, 60.0f);
     app_debug_pwm_test_frequency_sweep(0, 160000, 240000, 20000, 500);
-    app_hrpwm_set_frequency(HRPWM_INST_0, 200000);
+    app_hrpwm_set_frequency(HRPWM_INST_BUCKBOOST, 200000);
     app_hrpwm_set_phase(0, 0, 1, 0.0f);
     intf_clock_delay_ms(200);
 
     app_debug_printf("\r\n[HRPWM] --- Test 4: PWM1 static initial phase = 150 deg ---\r\n");
-    app_hrpwm_stop(HRPWM_PAIR_2);
-    app_hrpwm_stop(HRPWM_PAIR_3);
+    app_hrpwm_stop(HRPWM_BUCKBOOST_A);
+    app_hrpwm_stop(HRPWM_BUCKBOOST_B);
     intf_clock_delay_ms(20);
     app_hrpwm_set_phase(1, 0, 1, 150.0f);
-    app_hrpwm_start(HRPWM_PAIR_2);
-    app_hrpwm_start(HRPWM_PAIR_3);
+    app_hrpwm_start(HRPWM_BUCKBOOST_A);
+    app_hrpwm_start(HRPWM_BUCKBOOST_B);
     app_debug_dump_hrpwm_cmp();
     intf_clock_delay_ms(2000);
 
@@ -353,7 +353,7 @@ void app_debug_hrpwm_run_tests(void)
 
     app_debug_printf("\r\n[HRPWM] --- Test 6: PWM0 duty resolution around 50% ---\r\n");
     app_debug_pwm_test_duty_resolution(0, 0, 0.45f, 0.55f, 0.0005f, 80);
-    app_hrpwm_set_duty(HRPWM_PAIR_0, 0.5f);
+    app_hrpwm_set_duty(HRPWM_LCC_A, 0.5f);
     app_hrpwm_set_phase(0, 0, 1, 0.0f);
 
     app_debug_printf("\r\n[HRPWM] === HRPWM Validation Tests Completed ===\r\n");

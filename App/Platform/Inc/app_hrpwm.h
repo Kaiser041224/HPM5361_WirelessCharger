@@ -11,21 +11,24 @@
 #include <stdint.h>
 
 typedef enum {
-    HRPWM_PAIR_0 = 0,
-    HRPWM_PAIR_1,
-    HRPWM_PAIR_2,
-    HRPWM_PAIR_3,
+    HRPWM_LCC_A = 0,        /* PWM0 pair 0: LCC 全桥半桥 A */
+    HRPWM_LCC_B,            /* PWM0 pair 1: LCC 全桥半桥 B */
+    HRPWM_BUCKBOOST_A,      /* PWM1 pair 0: Buck-Boost 主半桥 */
+    HRPWM_BUCKBOOST_B,      /* PWM1 pair 1: Buck-Boost 同步整流 */
     HRPWM_PAIR_COUNT,
 } hrpwm_pair_t;
 
 typedef enum {
-    HRPWM_INST_0 = 0,
-    HRPWM_INST_1,
+    HRPWM_INST_LCC = 0,       /* PWM0: LCC 全桥 */
+    HRPWM_INST_BUCKBOOST,     /* PWM1: Buck-Boost */
     HRPWM_INST_COUNT,
 } hrpwm_inst_t;
 
 void app_hrpwm_init(void);
 void app_hrpwm_set_duty(hrpwm_pair_t pair, float duty);
+void app_hrpwm_set_duty_direct(hrpwm_pair_t pair, float duty);
+void app_hrpwm_set_duty_direct_dual(hrpwm_pair_t pair_a, float duty_a,
+                                     hrpwm_pair_t pair_b, float duty_b);
 void app_hrpwm_set_frequency(hrpwm_inst_t inst, uint32_t freq_hz);
 void app_hrpwm_set_jitter(hrpwm_pair_t pair, uint8_t jitter_cmp);
 void app_hrpwm_start(hrpwm_pair_t pair);

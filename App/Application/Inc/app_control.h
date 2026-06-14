@@ -52,8 +52,10 @@ typedef struct {
         float i_lf_a;
     } filt;
     struct {
-        float bb;
-        float lcc;
+        float buckboost_a;
+        float buckboost_b;
+        float lcc_a;
+        float lcc_b;
     } duty;
 } ctrl_diag_t;
 

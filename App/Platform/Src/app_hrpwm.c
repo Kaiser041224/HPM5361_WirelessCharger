@@ -28,41 +28,43 @@ void app_hrpwm_init(void) {
     hpm_hrpwm_driver_register();
 
     intf_hrpwm_pair_cfg_t cfg[HRPWM_PAIR_COUNT] = {
-        [HRPWM_PAIR_0] =
+        // LCC PWM配置
+        [HRPWM_LCC_A] =
             {.frequency_hz = 148000,
-                            .duty = 0.0f,
-                            .deadtime_ns = 25,
-                            .jitter_cmp = 4,
-                            .align = INTF_HRPWM_ALIGN_CENTER,
-                            .invert_high_side = false,
-                            .invert_low_side = false},
-        [HRPWM_PAIR_1] =
+                           .duty = 0.0f,
+                           .deadtime_ns = 25,
+                           .jitter_cmp = 4,
+                           .align = INTF_HRPWM_ALIGN_CENTER,
+                           .invert_high_side = false,
+                           .invert_low_side = false},
+        /* LCC_B: 两路输出反相 (物理连线差异) */
+        [HRPWM_LCC_B] =
             {.frequency_hz = 148000,
-                            .duty = 0.0f,
-                            .deadtime_ns = 25,
-                            .jitter_cmp = 4,
-                            .align = INTF_HRPWM_ALIGN_CENTER,
-                            .invert_high_side = false,
-                            .invert_low_side = false},
-        [HRPWM_PAIR_2] =
+                           .duty = 0.0f,
+                           .deadtime_ns = 25,
+                           .jitter_cmp = 4,
+                           .align = INTF_HRPWM_ALIGN_CENTER,
+                           .invert_high_side = true,
+                           .invert_low_side = true},
+        // BUCKBOOST PWM配置
+        [HRPWM_BUCKBOOST_A] =
             {.frequency_hz = 200000,
-                            .duty = 0.0f,
-                            .deadtime_ns = 15,
-                            .jitter_cmp = 4,
-                            .align = INTF_HRPWM_ALIGN_CENTER,
-                            .invert_high_side = false,
-                            .invert_low_side = false},
-        [HRPWM_PAIR_3] =
+                           .duty = 0.8f,
+                           .deadtime_ns = 15,
+                           .jitter_cmp = 4,
+                           .align = INTF_HRPWM_ALIGN_CENTER,
+                           .invert_high_side = false,
+                           .invert_low_side = false},
+        [HRPWM_BUCKBOOST_B] =
             {.frequency_hz = 200000,
-                            .duty = 0.0f,
-                            .deadtime_ns = 15,
-                            .jitter_cmp = 4,
-                            .align = INTF_HRPWM_ALIGN_CENTER,
-                            .invert_high_side = false,
-                            .invert_low_side = false},
+                           .duty = 0.8f,
+                           .deadtime_ns = 15,
+                           .jitter_cmp = 4,
+                           .align = INTF_HRPWM_ALIGN_CENTER,
+                           .invert_high_side = false,
+                           .invert_low_side = false},
     };
-
-    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+    for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         (void)intf_hrpwm_init_pair(hrpwm_pair_channel(pair), &cfg[pair]);
         /* PWM configured but NOT started — ADC calibrates in quiet environment first */
     }
@@ -73,6 +75,22 @@ void app_hrpwm_set_duty(hrpwm_pair_t pair, float duty) {
         return;
 
     (void)intf_hrpwm_set_duty(hrpwm_pair_channel(pair), duty);
+}
+
+void app_hrpwm_set_duty_direct(hrpwm_pair_t pair, float duty) {
+    if (!hrpwm_pair_is_valid(pair))
+        return;
+
+    (void)intf_hrpwm_set_duty_direct(hrpwm_pair_channel(pair), duty);
+}
+
+void app_hrpwm_set_duty_direct_dual(
+    hrpwm_pair_t pair_a, float duty_a, hrpwm_pair_t pair_b, float duty_b) {
+    if (!hrpwm_pair_is_valid(pair_a) || !hrpwm_pair_is_valid(pair_b))
+        return;
+
+    (void)intf_hrpwm_set_duty_direct_dual(
+        hrpwm_pair_channel(pair_a), duty_a, hrpwm_pair_channel(pair_b), duty_b);
 }
 
 void app_hrpwm_set_frequency(hrpwm_inst_t inst, uint32_t freq_hz) {
@@ -105,13 +123,13 @@ void app_hrpwm_stop(hrpwm_pair_t pair) {
 }
 
 void app_hrpwm_stop_all(void) {
-    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+    for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         app_hrpwm_stop(pair);
     }
 }
 
 void app_hrpwm_start_all(void) {
-    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+    for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         app_hrpwm_start(pair);
     }
 }
@@ -133,13 +151,13 @@ void app_hrpwm_force_release(hrpwm_pair_t pair) {
 }
 
 void app_hrpwm_emergency_stop(void) {
-    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+    for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         app_hrpwm_force_low(pair);
     }
 }
 
 void app_hrpwm_resume(void) {
-    for (hrpwm_pair_t pair = HRPWM_PAIR_0; pair < HRPWM_PAIR_COUNT; pair++) {
+    for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         app_hrpwm_force_release(pair);
     }
 }
@@ -152,16 +170,17 @@ void app_hrpwm_config_fault(void) {
         .active_low = true,
     };
 
-    (void)intf_hrpwm_config_fault((intf_hrpwm_inst_t)HRPWM_INST_0, &fault_cfg);
-    (void)intf_hrpwm_config_fault((intf_hrpwm_inst_t)HRPWM_INST_1, &fault_cfg);
+    (void)intf_hrpwm_config_fault((intf_hrpwm_inst_t)HRPWM_INST_LCC, &fault_cfg);
+    (void)intf_hrpwm_config_fault((intf_hrpwm_inst_t)HRPWM_INST_BUCKBOOST, &fault_cfg);
 }
 
 void app_hrpwm_clear_fault(void) {
-    (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)HRPWM_INST_0);
-    (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)HRPWM_INST_1);
+    (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)HRPWM_INST_LCC);
+    (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)HRPWM_INST_BUCKBOOST);
 }
 
-void app_hrpwm_set_phase(hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
+void app_hrpwm_set_phase(
+    hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
     intf_hrpwm_phase_cfg_t cfg = {
         .inst = inst,
         .ref_pair = ref_pair,

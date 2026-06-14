@@ -22,6 +22,7 @@
 #include "ctrl_lcc.h"
 
 #include "hpm_common.h"
+#include "hpm_csr_drv.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -32,6 +33,7 @@
 
 /* 放入 DLM (fast_ram.bss)，ISR 中高频写入，主循环读取，消除 flash 访问延迟 */
 ATTR_PLACE_AT_FAST_RAM_BSS volatile ctrl_diag_t g_ctrl_diag;
+volatile uint32_t g_isr_cycles_max = 0;
 
 /* ============================================================================
  * 滤波器实例
@@ -106,15 +108,34 @@ static ctrl_lcc_t g_lcc;
 
 ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
+    uint32_t t0 = read_csr(CSR_MCYCLE);
+
+    /* I_L: 每个周期读取 + 转换 + 滤波 */
     uint16_t raw_i_l;
     app_adc_get_pmt_raw(ADC_CH_I_L, &raw_i_l);
-
     float phys_i_l;
     app_analog_signal_convert_raw(ADC_CH_I_L, raw_i_l, &phys_i_l);
     g_ctrl_diag.raw.i_l_a = phys_i_l;
     g_ctrl_diag.filt.i_l_a = algo_lpf_step_fast(&lpf_i_l, phys_i_l);
 
-    /* TODO: 控制器 step → set_duty */
+    /* V_IN, V_LINK: 直接使用慢环路已更新的滤波值 */
+    float v_in = g_ctrl_diag.filt.v_in_v;
+    float v_link = g_ctrl_diag.filt.v_link_v;
+
+    /* ---- 开环测试: V_cmd = VIN/2, 目标 VLINK = 12V ---- */
+    float v_cmd = v_in * 0.75f;
+    ctrl_buckboost_modulate(&g_buckboost, v_cmd, v_in, v_link);
+
+    g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
+    g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
+    app_hrpwm_set_duty_direct_dual(
+        HRPWM_BUCKBOOST_A, g_ctrl_diag.duty.buckboost_a, HRPWM_BUCKBOOST_B,
+        g_ctrl_diag.duty.buckboost_b);
+
+    uint32_t elapsed = read_csr(CSR_MCYCLE) - t0;
+    if (elapsed > g_isr_cycles_max) {
+        g_isr_cycles_max = elapsed;
+    }
 }
 
 /* ============================================================================
@@ -152,7 +173,7 @@ static void buckboost_voltage_loop_isr(void) {
     g_ctrl_diag.raw.v_link_v = phys_v_link;
     g_ctrl_diag.filt.v_link_v = ma_v_link.step(&ma_v_link, phys_v_link);
 
-    /* TODO: 电压环 PI → s_staging.current_ref */
+    /* TODO: ctrl_buckboost_update_voltage() → get_current_ref() → s_active swap */
     s_active = s_staging;
 }
 
@@ -170,7 +191,7 @@ static void buckboost_power_loop_isr(void) {
     g_ctrl_diag.filt.v_in_v = ma_v_in.step(&ma_v_in, phys_v_in);
     g_ctrl_diag.filt.i_in_a = ma_i_in.step(&ma_i_in, phys_i_in);
 
-    /* TODO: 功率环 PI → s_staging.voltage_ref */
+    /* TODO: p_in = v_in * i_in → ctrl_buckboost_update_power() */
 }
 
 /* ============================================================================
@@ -193,8 +214,8 @@ static bool s_self_test_ok;
 
 static void configure_controllers_for_mode(void) {
     switch (s_mode) {
-    case MODE_BUCK_CV: ctrl_buckboost_set_target_type(&g_buckboost, BB_TARGET_CV); break;
-    case MODE_BUCK_CC: ctrl_buckboost_set_target_type(&g_buckboost, BB_TARGET_CC); break;
+    case MODE_BUCK_CV: ctrl_buckboost_set_target_type(&g_buckboost, BUCKBOOST_TARGET_CV); break;
+    case MODE_BUCK_CC: ctrl_buckboost_set_target_type(&g_buckboost, BUCKBOOST_TARGET_CC); break;
     case MODE_LCC_OPEN: ctrl_lcc_set_mode(&g_lcc, LCC_MODE_OPEN_LOOP); break;
     case MODE_LCC_CLOSED: ctrl_lcc_set_mode(&g_lcc, LCC_MODE_CLOSED_LOOP); break;
     default: break;
@@ -209,6 +230,7 @@ void app_control_init(void) {
     /* 1. 控制器初始化 (不涉及硬件) */
     ctrl_fault_init(NULL);
     ctrl_buckboost_init(&g_buckboost);
+    ctrl_buckboost_enable(&g_buckboost);
     ctrl_lcc_init(&g_lcc);
 
     /* 2. 双缓冲清零 */

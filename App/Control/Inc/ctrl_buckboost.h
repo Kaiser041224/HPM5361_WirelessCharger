@@ -1,20 +1,26 @@
 /*
  * ctrl_buckboost.h — 四开关 Buck-Boost 控制器
  *
- * 面向 PWM1 pair 0/1 的四开关拓扑，封装：
- *   - 内外双环 (I_L 电流内环 + V_OUT 电压外环)
- *   - 软启动斜坡
- *   - 模式切换 (Buck / Boost / Buck-Boost)
- *   - 占空比限幅与安全关断
+ * 控制链:
+ *   PI 输出 + 前馈 → V_cmd (V，有物理意义的目标电压)
+ *   调制器: V_cmd + VIN + VLINK → DA, DB
  *
- * Copyright (c) 2026 HPMicro
+ * 调制器公式:
+ *   DA = Dmax × V_cmd / (VIN + V_cmd)
+ *   DB = Dmax × VIN / (VIN + V_cmd)
+ *   稳态: VLINK = VIN × DA / DB = V_cmd
+ *
+ * 双向功率: V_cmd 符号由 PI + 前馈自然决定。
+ * A/B 半桥独立控制，无移相。
+ *
+ * Copyright (c) 2026 Alliance HardWare Team
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
 #ifndef CTRL_BUCKBOOST_H
 #define CTRL_BUCKBOOST_H
 
-#include "ctrl_types.h"
+#include "algo_pid.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -23,85 +29,110 @@
 extern "C" {
 #endif
 
-/* ============================================================================
- * 类型定义
- * ============================================================================ */
+typedef struct {
+    float kp;
+    float ki;
+    float kd;
+    float integral_max;
+    float output_max;
+    float output_min;
+} ctrl_buckboost_pid_params_t;
 
-/**
- * @brief Buck-Boost 工作模式。
- */
 typedef enum {
-    BB_MODE_IDLE       = 0, /**< 未激活 */
-    BB_MODE_BUCK       = 1, /**< Buck 模式 (Vin > Vout) */
-    BB_MODE_BOOST      = 2, /**< Boost 模式 (Vin < Vout) */
-    BB_MODE_BUCKBOOST  = 3, /**< BuckBoost 过渡模式 (Vin ≈ Vout) */
-} ctrl_bb_mode_t;
+    BUCKBOOST_TARGET_CV = 0,
+    BUCKBOOST_TARGET_CC = 1,
+} ctrl_buckboost_target_t;
 
-/**
- * @brief Buck-Boost 控制目标。
- */
 typedef enum {
-    BB_TARGET_CV = 0, /**< 恒压模式 (电压外环有效) */
-    BB_TARGET_CC = 1, /**< 恒流模式 (仅电流内环) */
-} ctrl_bb_target_t;
+    BUCKBOOST_REGION_BUCK      = 0,
+    BUCKBOOST_REGION_CROSSOVER = 1,
+    BUCKBOOST_REGION_BOOST     = 2,
+} ctrl_buckboost_region_t;
 
-/**
- * @brief Buck-Boost 控制参数 (运行时可调)。
- */
 typedef struct {
-    ctrl_pid_params_t current_pid;  /**< 电流内环 PID */
-    ctrl_pid_params_t voltage_pid;  /**< 电压外环 PID */
-    float soft_start_step;          /**< 软启动每步占空比增量 */
-    float i_l_limit_a;              /**< I_L 硬件限流 (A) */
-    float v_out_limit_v;            /**< V_OUT 硬件限压 (V) */
-} ctrl_bb_params_t;
+    ctrl_buckboost_pid_params_t current_pid;
+    ctrl_buckboost_pid_params_t voltage_pid;
+    float i_l_limit_a;
+    float v_out_limit_v;
+    float duty_min;
+    float duty_max;
+    float crossover_band;
+} ctrl_buckboost_params_t;
 
-/**
- * @brief Buck-Boost 控制器运行时状态。
- */
 typedef struct {
-    bool    enabled;
-    bool    soft_start_active;
-    float   duty;              /**< 当前输出占空比 [0, 1] */
-    float   duty_target;       /**< 目标占空比 (软启动终点) */
-    ctrl_bb_mode_t  mode;
-    ctrl_bb_target_t target_type;
-    float   v_out_target_v;    /**< 电压目标 (V) */
-    float   i_l_target_a;      /**< 电流目标 (A) */
-    float   current_integral;
-    float   voltage_integral;
-    float   last_current_error;
-    float   last_voltage_error;
-} ctrl_bb_state_t;
+    bool                    enabled;
+    ctrl_buckboost_target_t target_type;
 
-/**
- * @brief Buck-Boost 控制器对象。
- *
- * 一个实例对应一组四开关 Buck-Boost 功率级。
- */
+    float v_out_target_v;
+    float i_l_target_a;
+
+    algo_pid_t current_pid;
+    algo_pid_t voltage_pid;
+
+    float current_ref;
+
+    float v_cmd;
+    float duty_a;
+    float duty_b;
+
+    ctrl_buckboost_region_t region;
+} ctrl_buckboost_state_t;
+
 typedef struct {
-    ctrl_bb_params_t   params;
-    ctrl_bb_state_t    state;
+    ctrl_buckboost_params_t params;
+    ctrl_buckboost_state_t  state;
 } ctrl_buckboost_t;
-
-/* ============================================================================
- * 公开接口
- * ============================================================================ */
 
 int  ctrl_buckboost_init(ctrl_buckboost_t *ctrl);
 int  ctrl_buckboost_enable(ctrl_buckboost_t *ctrl);
 void ctrl_buckboost_disable(ctrl_buckboost_t *ctrl);
 void ctrl_buckboost_emergency_stop(ctrl_buckboost_t *ctrl);
-void ctrl_buckboost_step(ctrl_buckboost_t *ctrl, float v_in, float v_out, float i_l);
+
+/*
+ * 调制器: V_cmd (V) + VIN + VLINK → DA, DB
+ *
+ *   DA = Dmax × V_cmd / (VIN + V_cmd)
+ *   DB = Dmax × VIN / (VIN + V_cmd)
+ *
+ * 稳态: VLINK = V_cmd
+ * 输入 v_in, vlink 用于诊断区域判定。
+ */
+void ctrl_buckboost_modulate(ctrl_buckboost_t *ctrl,
+                             float v_cmd, float v_in, float vlink);
+
+/*
+ * 电流内环 update (200kHz)
+ *   PI(current_ref, i_l) → u_pi (V)
+ *   u_pi + u_model_ff → v_cmd
+ *   modulate(v_cmd, VIN, VLINK) → DA, DB
+ */
+void ctrl_buckboost_update_current(ctrl_buckboost_t *ctrl,
+                                   float i_l, float v_in, float vlink);
+
+/*
+ * 电压外环 update (50kHz)
+ *   PI(v_out_target, vlink) → current_ref
+ */
+void ctrl_buckboost_update_voltage(ctrl_buckboost_t *ctrl, float vlink);
+
+/*
+ * 功率外环 update (20kHz)
+ *   PI(p_target, p_in) → v_out_target_v
+ */
+void ctrl_buckboost_update_power(ctrl_buckboost_t *ctrl, float p_in);
+
 void ctrl_buckboost_set_vout_target(ctrl_buckboost_t *ctrl, float target_v);
 void ctrl_buckboost_set_il_target(ctrl_buckboost_t *ctrl, float target_a);
-void ctrl_buckboost_set_target_type(ctrl_buckboost_t *ctrl, ctrl_bb_target_t target);
-void ctrl_buckboost_set_params(ctrl_buckboost_t *ctrl, const ctrl_bb_params_t *params);
-void ctrl_buckboost_soft_start(ctrl_buckboost_t *ctrl);
+void ctrl_buckboost_set_target_type(ctrl_buckboost_t *ctrl, ctrl_buckboost_target_t target);
+void ctrl_buckboost_set_params(ctrl_buckboost_t *ctrl, const ctrl_buckboost_params_t *params);
 
-float          ctrl_buckboost_get_duty(const ctrl_buckboost_t *ctrl);
-ctrl_bb_mode_t ctrl_buckboost_get_mode(const ctrl_buckboost_t *ctrl);
-bool           ctrl_buckboost_is_enabled(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_duty_a(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_duty_b(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_v_cmd(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_duty_max(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_current_ref(const ctrl_buckboost_t *ctrl);
+ctrl_buckboost_region_t ctrl_buckboost_get_region(const ctrl_buckboost_t *ctrl);
+bool  ctrl_buckboost_is_enabled(const ctrl_buckboost_t *ctrl);
 
 #ifdef __cplusplus
 }

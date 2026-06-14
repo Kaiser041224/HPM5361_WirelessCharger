@@ -19,21 +19,20 @@ void app_init(void) {
     intf_clock_init();
 
     app_gpio_init();
-    app_gpio_set(PIN_DRVPWR, false);
+    app_gpio_set(PIN_DRVPWR, true);
 
-    app_hrpwm_init();            /* PWM configured, NOT started (quiet for ADC cal) */
-    app_adc_init();              /* ADC calibration + PMT setup in quiet environment */
-    app_analog_signal_init();    /* Load calibration params for raw → physical conversion */
-
-    app_hrpwm_start_all();       /* PWM starts — PMT callbacks now safe */
     app_buzzer_init();
     app_ws2812_init();
-
+    //
     app_can_register_driver();
     app_can_init();
-
-    app_control_init();
     app_comm_init();
+    //
+    app_hrpwm_init();         /* PWM configured, NOT started (quiet for ADC cal) */
+    app_adc_init();           /* ADC calibration + PMT setup in quiet environment */
+    app_analog_signal_init(); /* Load calibration params for raw → physical conversion */
+    app_hrpwm_start_all();    /* PWM starts — PMT callbacks now safe */
+    app_control_init();
 }
 
 void app_run_once(void) {
