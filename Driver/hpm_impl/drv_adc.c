@@ -204,7 +204,11 @@ static void adc_enable_instance_irq(uint8_t inst) {
  * ISR
  * ============================================================================ */
 
+ATTR_RAMFUNC
 static void adc_generic_isr(uint8_t inst) {
+    uint32_t t0;
+    __asm__ volatile("csrr %0, mcycle" : "=r"(t0));
+
     adc_diag.generic_entry[inst]++;
 
     adc_inst_t* ai = &adc_instances[inst];
@@ -320,6 +324,13 @@ static void adc_generic_isr(uint8_t inst) {
             }
         }
     }
+
+    uint32_t t1;
+    __asm__ volatile("csrr %0, mcycle" : "=r"(t1));
+    uint32_t elapsed = t1 - t0;
+    if (elapsed > adc_diag.isr_cycles_max[inst]) {
+        adc_diag.isr_cycles_max[inst] = elapsed;
+    }
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC0, isr_adc0)
@@ -345,6 +356,13 @@ int adc_get_diag_snapshot(intf_adc_diag_snapshot_t *snapshot)
     restore_global_irq(mstatus);
 
     return 0;
+}
+
+void adc_reset_diag_max(void)
+{
+    for (uint8_t i = 0; i < INTF_ADC_INSTANCE_COUNT; i++) {
+        adc_diag.isr_cycles_max[i] = 0;
+    }
 }
 
 /* ============================================================================

@@ -82,6 +82,7 @@ typedef struct {
     uint32_t pmt_invalid_trig[INTF_ADC_INSTANCE_COUNT];
     uint32_t pmt_invalid_channel[INTF_ADC_INSTANCE_COUNT];
     uint32_t adc1_handled_in_adc0_irq;
+    uint32_t isr_cycles_max[INTF_ADC_INSTANCE_COUNT];
 } intf_adc_diag_snapshot_t;
 
 /** @brief Per-instance ADC configuration */
@@ -152,6 +153,7 @@ int intf_adc_stop(intf_adc_ch_t ch);
 void intf_adc_set_vref(intf_adc_ch_t ch, float vref_mv);
 int intf_adc_calibrate(intf_adc_ch_t ch); /* re-trigger ADC offset calibration */
 int intf_adc_get_diag_snapshot(intf_adc_diag_snapshot_t* snapshot);
+void intf_adc_reset_diag_max(void);
 
 /* WDOG re-arm: re-enable interrupt for a channel after wdog_cb fired.
  * Required because the ISR auto-disables the channel's WDOG interrupt

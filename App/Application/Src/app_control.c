@@ -50,6 +50,7 @@ static float ma_buf_v_in[4];
 
 #define ADC1_SAMPLE_RATE_HZ 200000.0f
 #define ADC0_SAMPLE_RATE_HZ 148000.0f
+#define CTRL_FREQ_DIVIDER    2
 
 static void filter_init_all(void) {
     algo_lpf_cfg_t lpf_cfg;
@@ -110,7 +111,7 @@ ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
     uint32_t t0 = read_csr(CSR_MCYCLE);
 
-    /* I_L: 每个周期读取 + 转换 + 滤波 */
+    /* I_L: 每个周期读取 + 转换 + 滤波 (200kHz) */
     uint16_t raw_i_l;
     app_adc_get_pmt_raw(ADC_CH_I_L, &raw_i_l);
     float phys_i_l;
@@ -118,19 +119,21 @@ static void buckboost_current_loop_isr(void) {
     g_ctrl_diag.raw.i_l_a = phys_i_l;
     g_ctrl_diag.filt.i_l_a = algo_lpf_step_fast(&lpf_i_l, phys_i_l);
 
-    /* V_IN, V_LINK: 直接使用慢环路已更新的滤波值 */
-    float v_in = g_ctrl_diag.filt.v_in_v;
-    float v_link = g_ctrl_diag.filt.v_link_v;
+    /* 控制频率分频: 200kHz 采样, 100kHz PI 控制 */
+    static uint8_t s_ctrl_div = 0;
+    if (++s_ctrl_div >= CTRL_FREQ_DIVIDER) {
+        s_ctrl_div = 0;
+        float v_in = g_ctrl_diag.filt.v_in_v;
+        float v_link = g_ctrl_diag.filt.v_link_v;
 
-    /* ---- 开环测试: V_cmd = VIN/2, 目标 VLINK = 12V ---- */
-    float v_cmd = v_in * 0.75f;
-    ctrl_buckboost_modulate(&g_buckboost, v_cmd, v_in, v_link);
+        ctrl_buckboost_update_current(&g_buckboost, g_ctrl_diag.filt.i_l_a, v_in, v_link);
 
-    g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
-    g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
-    app_hrpwm_set_duty_direct_dual(
-        HRPWM_BUCKBOOST_A, g_ctrl_diag.duty.buckboost_a, HRPWM_BUCKBOOST_B,
-        g_ctrl_diag.duty.buckboost_b);
+        g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
+        g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
+        app_hrpwm_set_duty_direct_dual(
+            HRPWM_BUCKBOOST_A, g_ctrl_diag.duty.buckboost_a, HRPWM_BUCKBOOST_B,
+            g_ctrl_diag.duty.buckboost_b);
+    }
 
     uint32_t elapsed = read_csr(CSR_MCYCLE) - t0;
     if (elapsed > g_isr_cycles_max) {
@@ -231,6 +234,7 @@ void app_control_init(void) {
     ctrl_fault_init(NULL);
     ctrl_buckboost_init(&g_buckboost);
     ctrl_buckboost_enable(&g_buckboost);
+    ctrl_buckboost_set_il_target(&g_buckboost, 0.5f);
     ctrl_lcc_init(&g_lcc);
 
     /* 2. 双缓冲清零 */

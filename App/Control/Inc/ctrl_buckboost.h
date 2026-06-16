@@ -43,12 +43,6 @@ typedef enum {
     BUCKBOOST_TARGET_CC = 1,
 } ctrl_buckboost_target_t;
 
-typedef enum {
-    BUCKBOOST_REGION_BUCK      = 0,
-    BUCKBOOST_REGION_CROSSOVER = 1,
-    BUCKBOOST_REGION_BOOST     = 2,
-} ctrl_buckboost_region_t;
-
 typedef struct {
     ctrl_buckboost_pid_params_t current_pid;
     ctrl_buckboost_pid_params_t voltage_pid;
@@ -56,7 +50,6 @@ typedef struct {
     float v_out_limit_v;
     float duty_min;
     float duty_max;
-    float crossover_band;
 } ctrl_buckboost_params_t;
 
 typedef struct {
@@ -74,8 +67,6 @@ typedef struct {
     float v_cmd;
     float duty_a;
     float duty_b;
-
-    ctrl_buckboost_region_t region;
 } ctrl_buckboost_state_t;
 
 typedef struct {
@@ -131,7 +122,6 @@ float ctrl_buckboost_get_duty_b(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_v_cmd(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_duty_max(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_current_ref(const ctrl_buckboost_t *ctrl);
-ctrl_buckboost_region_t ctrl_buckboost_get_region(const ctrl_buckboost_t *ctrl);
 bool  ctrl_buckboost_is_enabled(const ctrl_buckboost_t *ctrl);
 
 #ifdef __cplusplus

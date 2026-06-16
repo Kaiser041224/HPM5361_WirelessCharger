@@ -10,6 +10,7 @@
 #include "app_hrpwm.h"
 #include "irq_profiler.h"
 
+#include "hpm_common.h"
 #include "intf_adc.h"
 #include "intf_hrpwm.h"
 #include "intf_trgm.h"
@@ -84,6 +85,7 @@ int app_adc_register_pmt_callback(app_adc_inst_t inst, app_adc_pmt_callback_t cb
     return 0;
 }
 
+ATTR_RAMFUNC
 int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw)
 {
     if (!app_adc_channel_is_valid(ch) || raw == NULL) return -1;
@@ -102,6 +104,7 @@ static uint32_t pmt_dma1[APP_ADC_PMT_DMA_BUFF_LEN] __attribute__((section(".nonc
  * PMT Callbacks → write to pmt_raw_cache
  * ============================================================================ */
 
+ATTR_RAMFUNC
 static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint8_t count, void *user_data)
 {
     IRQ_PROF_ENTER(g_prof_adc0);
@@ -129,6 +132,7 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
     IRQ_PROF_EXIT(g_prof_adc0);
 }
 
+ATTR_RAMFUNC
 static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint8_t count, void *user_data)
 {
     IRQ_PROF_ENTER(g_prof_adc1);

@@ -10,6 +10,7 @@
 
 #include "app_hrpwm.h"
 
+#include "hpm_common.h"
 #include "intf_hrpwm.h"
 
 #include <stdbool.h>

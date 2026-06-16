@@ -346,6 +346,13 @@ int intf_adc_get_diag_snapshot(intf_adc_diag_snapshot_t *snapshot)
     return adc_get_diag_snapshot(snapshot);
 }
 
+__attribute__((weak)) void adc_reset_diag_max(void) { }
+
+void intf_adc_reset_diag_max(void)
+{
+    adc_reset_diag_max();
+}
+
 /* ============================================================================
  * UART Interface
  * ============================================================================ */
