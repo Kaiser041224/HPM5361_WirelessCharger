@@ -2,15 +2,19 @@
  * ctrl_buckboost.h — 四开关 Buck-Boost 控制器
  *
  * 控制链:
- *   PI 输出 + 前馈 → V_cmd (V，有物理意义的目标电压)
- *   调制器: V_cmd + VIN + VLINK → DA, DB
+ *   PI 输出 → V_L_cmd (V，有符号平均电感电压命令)
+ *   VIN/VLINK 前馈: V_L_cmd → generalized_duty (0.0-1.0)
+ *   单输入调制器: generalized_duty → DA, DB
  *
  * 调制器公式:
- *   DA = Dmax × V_cmd / (VIN + V_cmd)
- *   DB = Dmax × VIN / (VIN + V_cmd)
- *   稳态: VLINK = VIN × DA / DB = V_cmd
+ *   DA = Dmax × generalized_duty
+ *   DB = Dmax × (1 - generalized_duty)
  *
- * 双向功率: V_cmd 符号由 PI + 前馈自然决定。
+ * 理想平均电感电压:
+ *   V_L = DA × VIN - DB × VLINK
+ *       = Dmax × ((VIN + VLINK) × generalized_duty - VLINK)
+ *
+ * 双向功率: V_L_cmd 符号由 PI 自然决定，前馈负责转换为 generalized_duty。
  * A/B 半桥独立控制，无移相。
  *
  * Copyright (c) 2026 Alliance HardWare Team
@@ -64,7 +68,9 @@ typedef struct {
 
     float current_ref;
 
-    float v_cmd;
+    float v_cmd;              /* 兼容字段: 当前表示 V_L_cmd (V)，不再表示目标 VLINK */
+    float generalized_duty;   /* 单输入调制命令，范围 0.0-1.0 */
+    bool  vlink_limit_active; /* VLINK 动态限幅迟滞状态 */
     float duty_a;
     float duty_b;
 } ctrl_buckboost_state_t;
@@ -80,22 +86,21 @@ void ctrl_buckboost_disable(ctrl_buckboost_t *ctrl);
 void ctrl_buckboost_emergency_stop(ctrl_buckboost_t *ctrl);
 
 /*
- * 调制器: V_cmd (V) + VIN + VLINK → DA, DB
+ * 单输入调制器: generalized_duty (0.0-1.0) → DA, DB
  *
- *   DA = Dmax × V_cmd / (VIN + V_cmd)
- *   DB = Dmax × VIN / (VIN + V_cmd)
+ *   DA = Dmax × generalized_duty
+ *   DB = Dmax × (1 - generalized_duty)
  *
- * 稳态: VLINK = V_cmd
- * 输入 v_in, vlink 用于诊断区域判定。
+ * VIN/VLINK 前馈不在调制器内完成，而是在 update_current() 中完成。
  */
 void ctrl_buckboost_modulate(ctrl_buckboost_t *ctrl,
-                             float v_cmd, float v_in, float vlink);
+                             float generalized_duty);
 
 /*
  * 电流内环 update (200kHz)
- *   PI(current_ref, i_l) → u_pi (V)
- *   u_pi + u_model_ff → v_cmd
- *   modulate(v_cmd, VIN, VLINK) → DA, DB
+ *   PI(current_ref, i_l) → V_L_cmd (V)
+ *   feedforward(V_L_cmd, VIN, VLINK) → generalized_duty
+ *   modulate(generalized_duty) → DA, DB
  */
 void ctrl_buckboost_update_current(ctrl_buckboost_t *ctrl,
                                    float i_l, float v_in, float vlink);
@@ -120,6 +125,7 @@ void ctrl_buckboost_set_params(ctrl_buckboost_t *ctrl, const ctrl_buckboost_para
 float ctrl_buckboost_get_duty_a(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_duty_b(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_v_cmd(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_generalized_duty(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_duty_max(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_current_ref(const ctrl_buckboost_t *ctrl);
 bool  ctrl_buckboost_is_enabled(const ctrl_buckboost_t *ctrl);
