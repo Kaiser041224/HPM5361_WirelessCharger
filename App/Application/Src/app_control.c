@@ -22,10 +22,9 @@
 #include "ctrl_lcc.h"
 
 #include "hpm_common.h"
-#include "hpm_csr_drv.h"
+#include "irq_profiler.h"
 
 #include <stddef.h>
-#include <string.h>
 
 /* ============================================================================
  * 诊断数据 — 主循环 RTT 打印用，ISR 中更新
@@ -40,6 +39,7 @@ volatile uint32_t g_isr_cycles_max = 0;
  * ============================================================================ */
 
 static algo_lpf_t lpf_i_l;
+static algo_lpf_t lpf_v_link_fast;
 static algo_ma_t ma_v_link;
 static algo_ma_t ma_i_in;
 static algo_ma_t ma_v_in;
@@ -61,6 +61,11 @@ static void filter_init_all(void) {
     lpf_cfg.sample_rate_hz = ADC1_SAMPLE_RATE_HZ;
     lpf_i_l.init(&lpf_i_l, &lpf_cfg);
 
+    algo_lpf_ctor(&lpf_v_link_fast);
+    lpf_cfg.cutoff_hz = 40000.0f;
+    lpf_cfg.sample_rate_hz = ADC1_SAMPLE_RATE_HZ;
+    lpf_v_link_fast.init(&lpf_v_link_fast, &lpf_cfg);
+
     algo_ma_ctor(&ma_v_link);
     ma_cfg.window_size = 4;
     ma_cfg.buffer = ma_buf_v_link;
@@ -76,19 +81,6 @@ static void filter_init_all(void) {
     ma_cfg.buffer = ma_buf_v_in;
     ma_v_in.init(&ma_v_in, &ma_cfg);
 }
-
-/* ============================================================================
- * 双缓冲 setpoint
- * ============================================================================ */
-
-typedef struct {
-    float current_ref;
-    float voltage_ref;
-    float power_limit;
-} ctrl_setpoints_t;
-
-static volatile ctrl_setpoints_t s_active;
-static ctrl_setpoints_t s_staging;
 
 /* ============================================================================
  * 控制器实例
@@ -109,7 +101,7 @@ static ctrl_lcc_t g_lcc;
 
 ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
-    uint32_t t0 = read_csr(CSR_MCYCLE);
+    uint32_t t0 = irq_prof_read_cycle();
 
     /* I_L: 每个周期读取 + 转换 + 滤波 (200kHz) */
     uint16_t raw_i_l;
@@ -119,12 +111,19 @@ static void buckboost_current_loop_isr(void) {
     g_ctrl_diag.raw.i_l_a = phys_i_l;
     g_ctrl_diag.filt.i_l_a = algo_lpf_step_fast(&lpf_i_l, phys_i_l);
 
+    /* V_LINK: 同周期新鲜采样 + 轻 LPF，供前馈使用 (减小前馈相位滞后) */
+    uint16_t raw_v_link;
+    app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link);
+    float phys_v_link;
+    app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
+    g_ctrl_diag.filt.v_link_fast_v = algo_lpf_step_fast(&lpf_v_link_fast, phys_v_link);
+
     /* 控制频率分频: 200kHz 采样, 100kHz PI 控制 */
     static uint8_t s_ctrl_div = 0;
     if (++s_ctrl_div >= CTRL_FREQ_DIVIDER) {
         s_ctrl_div = 0;
         float v_in = g_ctrl_diag.filt.v_in_v;
-        float v_link = g_ctrl_diag.filt.v_link_v;
+        float v_link = g_ctrl_diag.filt.v_link_fast_v;
 
         ctrl_buckboost_update_current(&g_buckboost, g_ctrl_diag.filt.i_l_a, v_in, v_link);
 
@@ -135,7 +134,7 @@ static void buckboost_current_loop_isr(void) {
             g_ctrl_diag.duty.buckboost_b);
     }
 
-    uint32_t elapsed = read_csr(CSR_MCYCLE) - t0;
+    uint32_t elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max) {
         g_isr_cycles_max = elapsed;
     }
@@ -176,8 +175,8 @@ static void buckboost_voltage_loop_isr(void) {
     g_ctrl_diag.raw.v_link_v = phys_v_link;
     g_ctrl_diag.filt.v_link_v = ma_v_link.step(&ma_v_link, phys_v_link);
 
-    /* TODO: ctrl_buckboost_update_voltage() → get_current_ref() → s_active swap */
-    s_active = s_staging;
+    /* 电压外环 PI (50kHz): 算 current_ref 命令, 暂不传递给电流内环 */
+    ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v);
 }
 
 ATTR_RAMFUNC
@@ -237,24 +236,20 @@ void app_control_init(void) {
     ctrl_buckboost_set_il_target(&g_buckboost, 0.5f);
     ctrl_lcc_init(&g_lcc);
 
-    /* 2. 双缓冲清零 */
-    memset((void*)&s_active, 0, sizeof(s_active));
-    memset(&s_staging, 0, sizeof(s_staging));
-
-    /* 3. 滤波器初始化 */
+    /* 2. 滤波器初始化 */
     filter_init_all();
 
-    /* 4. GPTMR1 外环定时器 (通过 Platform 层) */
+    /* 3. GPTMR1 外环定时器 (通过 Platform 层) */
     app_gptmr_init();
     app_gptmr_register_callback(APP_GPTMR_CH_VOLTAGE, buckboost_voltage_loop_isr);
     app_gptmr_register_callback(APP_GPTMR_CH_POWER, buckboost_power_loop_isr);
     app_gptmr_start_all();
 
-    /* 5. ADC PMT 完成回调: 电流内环 */
+    /* 4. ADC PMT 完成回调: 电流内环 */
     app_adc_register_pmt_callback(APP_ADC_INST_1, buckboost_current_loop_isr);
     app_adc_register_pmt_callback(APP_ADC_INST_0, lcc_current_loop_isr);
 
-    /* 6. 状态初始化 */
+    /* 5. 状态初始化 */
     s_state = SYS_INIT;
     s_mode = MODE_IDLE;
     s_self_test_ok = false;
@@ -267,10 +262,7 @@ void app_control_init(void) {
 void app_control_tick(void) {
     uint32_t faults = ctrl_fault_check();
     if (faults != 0U) {
-        s_state = SYS_FAULT;
-        app_hrpwm_emergency_stop();
-        ctrl_buckboost_emergency_stop(&g_buckboost);
-        ctrl_lcc_emergency_stop(&g_lcc);
+        app_control_emergency();
         return;
     }
 

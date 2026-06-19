@@ -45,7 +45,8 @@ typedef struct {
     } raw;
     struct {
         float i_l_a;
-        float v_link_v;
+        float v_link_v;      /* MA4 @50kHz: 电压外环反馈用 (稳态平滑) */
+        float v_link_fast_v; /* 1阶LPF @40kHz: 电流内环前馈用 (动态快, 勿用于反馈) */
         float i_in_a;
         float v_in_v;
         float i_coil_a;

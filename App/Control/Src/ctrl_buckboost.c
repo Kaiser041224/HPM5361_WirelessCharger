@@ -41,6 +41,10 @@
 #define BUCKBOOST_CURRENT_PID_OUT_MIN (-48.0f)
 #define BUCKBOOST_CURRENT_PID_OUT_MAX (48.0f)
 
+/* 电压环 PID 输出为电流命令 current_ref (A)，范围 ±i_l_limit */
+#define BUCKBOOST_VOLTAGE_PID_OUT_MIN (-BUCKBOOST_I_L_LIMIT_DEFAULT)
+#define BUCKBOOST_VOLTAGE_PID_OUT_MAX (BUCKBOOST_I_L_LIMIT_DEFAULT)
+
 /* generalized_duty 命令范围: 单输入调制器的最终命令钳位 */
 #define BUCKBOOST_GENERALIZED_DUTY_MIN 0.0f
 #define BUCKBOOST_GENERALIZED_DUTY_MAX 0.98f
@@ -325,7 +329,7 @@ int ctrl_buckboost_init(ctrl_buckboost_t* ctrl) {
 
     algo_pid_ctor(&ctrl->state.current_pid);
 
-    algo_pid_cfg_t pid_cfg = {
+    algo_pid_cfg_t inductor_current_pid_cfg = {
         .mode = ALGO_PID_MODE_INCREMENTAL,
         .kp = 0.125f,
         .ki = 750.0f,
@@ -343,7 +347,28 @@ int ctrl_buckboost_init(ctrl_buckboost_t* ctrl) {
         .setpoint_weight_p = 1.0f,
         .setpoint_weight_d = 0.0f,
     };
-    ctrl->state.current_pid.init(&ctrl->state.current_pid, &pid_cfg);
+    ctrl->state.current_pid.init(&ctrl->state.current_pid, &inductor_current_pid_cfg);
+
+    algo_pid_ctor(&ctrl->state.voltage_pid);
+    algo_pid_cfg_t voltage_pid_cfg = {
+        .mode = ALGO_PID_MODE_POSITIONAL,
+        .kp = 0.05f,
+        .ki = 200.0f,
+        .kd = 0.0f,
+        .sample_time_s = 1.0f / 50000.0f,
+        .out_min = BUCKBOOST_VOLTAGE_PID_OUT_MIN,
+        .out_max = BUCKBOOST_VOLTAGE_PID_OUT_MAX,
+        .integral_min = BUCKBOOST_VOLTAGE_PID_OUT_MIN,
+        .integral_max = BUCKBOOST_VOLTAGE_PID_OUT_MAX,
+        .antiwindup = ALGO_PID_ANTIWINDUP_CLAMP,
+        .backcalc_coeff = 1.0f,
+        .deriv_filter_coeff = 0.0f,
+        .deriv_on_measurement = true,
+        .rate_limit = 0.0f,
+        .setpoint_weight_p = 1.0f,
+        .setpoint_weight_d = 0.0f,
+    };
+    ctrl->state.voltage_pid.init(&ctrl->state.voltage_pid, &voltage_pid_cfg);
 
     return 0;
 }
@@ -361,6 +386,10 @@ int ctrl_buckboost_enable(ctrl_buckboost_t* ctrl) {
     if (ctrl->state.current_pid.reset) {
         ctrl->state.current_pid.reset(&ctrl->state.current_pid);
     }
+    ctrl->state.voltage_pid_out = 0.0f;
+    if (ctrl->state.voltage_pid.reset) {
+        ctrl->state.voltage_pid.reset(&ctrl->state.voltage_pid);
+    }
     return 0;
 }
 
@@ -373,6 +402,7 @@ void ctrl_buckboost_disable(ctrl_buckboost_t* ctrl) {
     ctrl->state.vlink_limit_active = false;
     ctrl->state.duty_a = 0.0f;
     ctrl->state.duty_b = 0.0f;
+    ctrl->state.voltage_pid_out = 0.0f;
 }
 
 void ctrl_buckboost_emergency_stop(ctrl_buckboost_t* ctrl) {
@@ -385,6 +415,7 @@ void ctrl_buckboost_emergency_stop(ctrl_buckboost_t* ctrl) {
     ctrl->state.duty_a = 0.0f;
     ctrl->state.duty_b = 0.0f;
     ctrl->state.current_ref = 0.0f;
+    ctrl->state.voltage_pid_out = 0.0f;
     if (ctrl->state.current_pid.reset) {
         ctrl->state.current_pid.reset(&ctrl->state.current_pid);
     }
@@ -495,7 +526,14 @@ void ctrl_buckboost_update_voltage(ctrl_buckboost_t* ctrl, float vlink) {
     if (ctrl == NULL || !ctrl->state.enabled) {
         return;
     }
-    (void)vlink;
+    if (!algo_pid_finite(vlink) || !algo_pid_finite(ctrl->state.v_out_target_v)) {
+        return;
+    }
+    /* 电压外环 PI: v_out_target → current_ref 命令。
+     * 结果暂存 voltage_pid_out，不传递给电流内环 current_ref (级联传递待下一阶段)。*/
+    float i_ref_cmd =
+        ctrl->state.voltage_pid.step(&ctrl->state.voltage_pid, ctrl->state.v_out_target_v, vlink);
+    ctrl->state.voltage_pid_out = algo_pid_finite(i_ref_cmd) ? i_ref_cmd : 0.0f;
 }
 
 /* ============================================================================
@@ -534,14 +572,9 @@ void ctrl_buckboost_set_il_target(ctrl_buckboost_t* ctrl, float target_a) {
     if (!algo_pid_finite(i_l_limit) || i_l_limit <= 0.0f) {
         i_l_limit = BUCKBOOST_I_L_LIMIT_DEFAULT;
     }
-    float new_ref = clampf(target_a, -i_l_limit, i_l_limit);
-    if (new_ref != ctrl->state.current_ref) {
-        ctrl->state.current_ref = new_ref;
-        ctrl->state.i_l_target_a = target_a;
-        if (ctrl->state.current_pid.reset) {
-            ctrl->state.current_pid.reset(&ctrl->state.current_pid);
-        }
-    }
+    /* 不 reset 内环 PID：级联时外环周期更新 ref，reset 会破坏积分连续性 */
+    ctrl->state.current_ref = clampf(target_a, -i_l_limit, i_l_limit);
+    ctrl->state.i_l_target_a = target_a;
 }
 
 void ctrl_buckboost_set_target_type(ctrl_buckboost_t* ctrl, ctrl_buckboost_target_t target) {
@@ -558,6 +591,17 @@ void ctrl_buckboost_set_params(ctrl_buckboost_t* ctrl, const ctrl_buckboost_para
         ctrl->state.current_pid.set_gains(
             &ctrl->state.current_pid, params->current_pid.kp, params->current_pid.ki,
             params->current_pid.kd);
+    }
+    if (ctrl->state.voltage_pid.set_gains) {
+        ctrl->state.voltage_pid.set_gains(
+            &ctrl->state.voltage_pid, params->voltage_pid.kp, params->voltage_pid.ki,
+            params->voltage_pid.kd);
+        float i_limit = (algo_pid_finite(params->i_l_limit_a) && params->i_l_limit_a > 0.0f)
+                            ? params->i_l_limit_a : BUCKBOOST_I_L_LIMIT_DEFAULT;
+        ctrl->state.voltage_pid._out_min = -i_limit;
+        ctrl->state.voltage_pid._out_max =  i_limit;
+        ctrl->state.voltage_pid._integral_min = -i_limit;
+        ctrl->state.voltage_pid._integral_max =  i_limit;
     }
 }
 

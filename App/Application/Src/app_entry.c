@@ -31,8 +31,8 @@ void app_init(void) {
     app_hrpwm_init();         /* PWM configured, NOT started (quiet for ADC cal) */
     app_adc_init();           /* ADC calibration + PMT setup in quiet environment */
     app_analog_signal_init(); /* Load calibration params for raw → physical conversion */
-    app_hrpwm_start_all();    /* PWM starts — PMT callbacks now safe */
-    app_control_init();
+    app_control_init();       /* Register ISR callbacks + pre-stage duty=0 BEFORE PWM starts */
+    app_hrpwm_start_all();    /* PWM starts — ISR already armed, duty begins at 0 */
 }
 
 void app_run_once(void) {

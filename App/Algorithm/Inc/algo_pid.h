@@ -29,6 +29,19 @@ static inline bool algo_pid_finite(float x)
     return (bits & 0x7F800000u) != 0x7F800000u;
 }
 
+/* ── Optional ILM deployment for hot control-loop paths ─────────────────
+ * Set ALGO_ENABLE_ILM=0 (e.g. via build system) to keep algorithm code in
+ * flash; default deploys hot paths to ILM (.fast) for deterministic 200kHz
+ * inner-loop execution (AGENTS.md §1). */
+#ifndef ALGO_ENABLE_ILM
+#define ALGO_ENABLE_ILM 1
+#endif
+#if ALGO_ENABLE_ILM
+#define ALGO_ATTR_RAMFUNC __attribute__((section(".fast")))
+#else
+#define ALGO_ATTR_RAMFUNC
+#endif
+
 typedef enum {
     ALGO_PID_MODE_POSITIONAL  = 0,
     ALGO_PID_MODE_INCREMENTAL = 1,

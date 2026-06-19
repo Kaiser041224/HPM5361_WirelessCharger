@@ -66,9 +66,10 @@ typedef struct {
     algo_pid_t current_pid;
     algo_pid_t voltage_pid;
 
-    float current_ref;
+    volatile float current_ref;        /* 电流内环实际使用的电流命令 (A) */
+    float voltage_pid_out;    /* 电压外环 PI 输出 = 待传递的 current_ref 命令 (A), 当前未接入内环 */
 
-    float v_cmd;              /* 兼容字段: 当前表示 V_L_cmd (V)，不再表示目标 VLINK */
+    float v_cmd;              /* 电流内环 V_L_cmd (V), 有符号平均电感电压命令 */
     float generalized_duty;   /* 单输入调制命令，范围 0.0-1.0 */
     bool  vlink_limit_active; /* VLINK 动态限幅迟滞状态 */
     float duty_a;

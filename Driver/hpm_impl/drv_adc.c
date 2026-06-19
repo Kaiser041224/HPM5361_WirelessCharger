@@ -14,6 +14,8 @@
 #include "hpm_soc_irq.h"
 #include "hpm_sysctl_drv.h"
 
+#include "irq_profiler.h"
+
 #include <stddef.h>
 #include <string.h>
 
@@ -196,7 +198,10 @@ static void adc_enable_instance_irq(uint8_t inst) {
     adc_inst_t* ai = &adc_instances[inst];
     uint32_t irq = ai->irq;
     if (irq != 0) {
-        intc_m_enable_irq_with_priority(irq, 1);
+        /* PLIC: 数字越大优先级越高。ADC1 (inst=1, Buck-Boost 200kHz 电流内环) 优先级
+         * 高于 ADC0 (inst=0, LCC 148kHz)；ADC1=2 不超过已显式配置的 GPTMR(3)、PWM0(2)。 */
+        uint32_t priority = (inst == 1U) ? 2U : 1U;
+        intc_m_enable_irq_with_priority(irq, priority);
     }
 }
 
@@ -206,8 +211,7 @@ static void adc_enable_instance_irq(uint8_t inst) {
 
 ATTR_RAMFUNC
 static void adc_generic_isr(uint8_t inst) {
-    uint32_t t0;
-    __asm__ volatile("csrr %0, mcycle" : "=r"(t0));
+    uint32_t t0 = irq_prof_read_cycle();
 
     adc_diag.generic_entry[inst]++;
 
@@ -325,9 +329,7 @@ static void adc_generic_isr(uint8_t inst) {
         }
     }
 
-    uint32_t t1;
-    __asm__ volatile("csrr %0, mcycle" : "=r"(t1));
-    uint32_t elapsed = t1 - t0;
+    uint32_t elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > adc_diag.isr_cycles_max[inst]) {
         adc_diag.isr_cycles_max[inst] = elapsed;
     }

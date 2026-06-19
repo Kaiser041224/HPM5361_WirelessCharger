@@ -94,6 +94,7 @@ static inline float algo_pid_ratelimit(algo_pid_t *self, float out)
 
 /* ── Prime state on first valid input to avoid derivative kick ────────── */
 
+ALGO_ATTR_RAMFUNC
 static void algo_pid_prime(algo_pid_t *self, float sp, float pv)
 {
     if (self->_primed) return;
@@ -110,6 +111,7 @@ static void algo_pid_prime(algo_pid_t *self, float sp, float pv)
 
 /* ── Positional step ─────────────────────────────────────────────────── */
 
+ALGO_ATTR_RAMFUNC
 static float algo_pid_step_pos_impl(algo_pid_t *self, float sp, float pv)
 {
     if (self == NULL || !self->_initialized) return 0.0f;
@@ -152,6 +154,7 @@ static float algo_pid_step_pos_impl(algo_pid_t *self, float sp, float pv)
 
 /* ── Incremental (velocity) step ─────────────────────────────────────── */
 
+ALGO_ATTR_RAMFUNC
 static float algo_pid_step_inc_impl(algo_pid_t *self, float sp, float pv)
 {
     if (self == NULL || !self->_initialized) return 0.0f;

@@ -50,7 +50,7 @@ void app_hrpwm_init(void) {
         // BUCKBOOST PWM配置
         [HRPWM_BUCKBOOST_A] =
             {.frequency_hz = 200000,
-                           .duty = 0.8f,
+                           .duty = 0.0f,
                            .deadtime_ns = 15,
                            .jitter_cmp = 4,
                            .align = INTF_HRPWM_ALIGN_CENTER,
@@ -58,7 +58,7 @@ void app_hrpwm_init(void) {
                            .invert_low_side = false},
         [HRPWM_BUCKBOOST_B] =
             {.frequency_hz = 200000,
-                           .duty = 0.8f,
+                           .duty = 0.0f,
                            .deadtime_ns = 15,
                            .jitter_cmp = 4,
                            .align = INTF_HRPWM_ALIGN_CENTER,
