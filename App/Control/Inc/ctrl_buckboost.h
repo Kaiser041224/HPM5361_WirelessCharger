@@ -52,6 +52,7 @@ typedef struct {
     ctrl_buckboost_pid_params_t voltage_pid;
     float i_l_limit_a;
     float v_out_limit_v;
+    float voltage_ff_gain;
     float duty_min;
     float duty_max;
 } ctrl_buckboost_params_t;
@@ -108,9 +109,16 @@ void ctrl_buckboost_update_current(ctrl_buckboost_t *ctrl,
 
 /*
  * 电压外环 update (50kHz)
- *   PI(v_out_target, vlink) → current_ref
+ *   PI(v_out_target, vlink) + i_load_ff × ff_gain → current_ref
  */
-void ctrl_buckboost_update_voltage(ctrl_buckboost_t *ctrl, float vlink);
+void ctrl_buckboost_update_voltage(ctrl_buckboost_t *ctrl, float vlink, float i_load_ff);
+
+/*
+ * 进入恒压 (CV) 模式，配置软起动
+ *   - 设定 v_out_target 并 reset 电压环 PID，从零输出开始
+ *   - target_type 自动设为 BUCKBOOST_TARGET_CV
+ */
+void ctrl_buckboost_enter_cv_mode(ctrl_buckboost_t *ctrl, float target_v);
 
 /*
  * 功率外环 update (20kHz)

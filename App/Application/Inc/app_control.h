@@ -58,6 +58,9 @@ typedef struct {
         float lcc_a;
         float lcc_b;
     } duty;
+    struct {
+        float i_load_est_a;
+    } ff;
 } ctrl_diag_t;
 
 extern volatile ctrl_diag_t g_ctrl_diag;

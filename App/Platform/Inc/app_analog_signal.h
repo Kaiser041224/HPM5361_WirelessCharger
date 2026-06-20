@@ -9,6 +9,7 @@
 #define APP_ANALOG_SIGNAL_H
 
 #include "app_adc.h"
+#include "algo_filter.h"
 
 #include <stdint.h>
 
@@ -25,6 +26,11 @@ typedef enum {
     APP_ANALOG_SIGNAL_ITEM_I_LF,
     APP_ANALOG_SIGNAL_ITEM_COUNT,
 } app_analog_signal_item_t;
+
+/* 内部符号声明，仅供 inline 函数访问，不作为公共 API */
+extern algo_lpf_t s_lpf_filters[];
+extern algo_ma_t s_ma_filters[];
+extern const app_analog_signal_item_t s_channel_to_item[];
 
 /**
  * @brief 读取结果模式。
@@ -109,6 +115,34 @@ int app_analog_signal_get_cached_raw(adc_channel_t ch, uint16_t *raw);
  * @param physical  输出物理量。
  */
 void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float *physical);
+
+/**
+ * @brief 单步 LPF 滤波（ISR 安全，内联零开销）。
+ *
+ * 对指定通道的 LPF 实例执行一步一阶低通滤波。
+ * 滤波参数由 app_analog_signal 统一配置。
+ * 非法通道直接返回原值，不会触发异常。
+ */
+static inline float app_analog_signal_lpf_step_fast(adc_channel_t ch, float value)
+{
+    if (ch >= ADC_CH_COUNT) return value;
+    algo_lpf_t *lpf = &s_lpf_filters[s_channel_to_item[ch]];
+    return lpf->_inited ? algo_lpf_step_fast(lpf, value) : value;
+}
+
+/**
+ * @brief 单步 MA 滤波（ISR 安全，内联零开销）。
+ *
+ * 对指定通道的 MA 实例执行一步滑动平均滤波。
+ * 滤波参数由 app_analog_signal 统一配置。
+ * 非法通道或未初始化通道直接返回原值，不会触发异常。
+ */
+static inline float app_analog_signal_ma_step(adc_channel_t ch, float value)
+{
+    if (ch >= ADC_CH_COUNT) return value;
+    algo_ma_t *ma = &s_ma_filters[s_channel_to_item[ch]];
+    return (ma->_inited && ma->step) ? ma->step(ma, value) : value;
+}
 
 /**
  * @brief 读取缓存中的物理量（ISR 专用，无函数调用开销）。

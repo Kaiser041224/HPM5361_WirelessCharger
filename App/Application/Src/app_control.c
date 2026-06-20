@@ -12,7 +12,6 @@
 
 #include "app_control.h"
 
-#include "algo_filter.h"
 #include "app_adc.h"
 #include "app_analog_signal.h"
 #include "app_gptmr.h"
@@ -34,53 +33,7 @@
 ATTR_PLACE_AT_FAST_RAM_BSS volatile ctrl_diag_t g_ctrl_diag;
 volatile uint32_t g_isr_cycles_max = 0;
 
-/* ============================================================================
- * 滤波器实例
- * ============================================================================ */
-
-static algo_lpf_t lpf_i_l;
-static algo_lpf_t lpf_v_link_fast;
-static algo_ma_t ma_v_link;
-static algo_ma_t ma_i_in;
-static algo_ma_t ma_v_in;
-
-static float ma_buf_v_link[4];
-static float ma_buf_i_in[4];
-static float ma_buf_v_in[4];
-
-#define ADC1_SAMPLE_RATE_HZ 200000.0f
-#define ADC0_SAMPLE_RATE_HZ 148000.0f
 #define CTRL_FREQ_DIVIDER    2
-
-static void filter_init_all(void) {
-    algo_lpf_cfg_t lpf_cfg;
-    algo_ma_cfg_t ma_cfg;
-
-    algo_lpf_ctor(&lpf_i_l);
-    lpf_cfg.cutoff_hz = 20000.0f;
-    lpf_cfg.sample_rate_hz = ADC1_SAMPLE_RATE_HZ;
-    lpf_i_l.init(&lpf_i_l, &lpf_cfg);
-
-    algo_lpf_ctor(&lpf_v_link_fast);
-    lpf_cfg.cutoff_hz = 40000.0f;
-    lpf_cfg.sample_rate_hz = ADC1_SAMPLE_RATE_HZ;
-    lpf_v_link_fast.init(&lpf_v_link_fast, &lpf_cfg);
-
-    algo_ma_ctor(&ma_v_link);
-    ma_cfg.window_size = 4;
-    ma_cfg.buffer = ma_buf_v_link;
-    ma_v_link.init(&ma_v_link, &ma_cfg);
-
-    algo_ma_ctor(&ma_i_in);
-    ma_cfg.window_size = 4;
-    ma_cfg.buffer = ma_buf_i_in;
-    ma_i_in.init(&ma_i_in, &ma_cfg);
-
-    algo_ma_ctor(&ma_v_in);
-    ma_cfg.window_size = 4;
-    ma_cfg.buffer = ma_buf_v_in;
-    ma_v_in.init(&ma_v_in, &ma_cfg);
-}
 
 /* ============================================================================
  * 控制器实例
@@ -109,14 +62,14 @@ static void buckboost_current_loop_isr(void) {
     float phys_i_l;
     app_analog_signal_convert_raw(ADC_CH_I_L, raw_i_l, &phys_i_l);
     g_ctrl_diag.raw.i_l_a = phys_i_l;
-    g_ctrl_diag.filt.i_l_a = algo_lpf_step_fast(&lpf_i_l, phys_i_l);
+    g_ctrl_diag.filt.i_l_a = app_analog_signal_lpf_step_fast(ADC_CH_I_L, phys_i_l);
 
     /* V_LINK: 同周期新鲜采样 + 轻 LPF，供前馈使用 (减小前馈相位滞后) */
     uint16_t raw_v_link;
     app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link);
     float phys_v_link;
     app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
-    g_ctrl_diag.filt.v_link_fast_v = algo_lpf_step_fast(&lpf_v_link_fast, phys_v_link);
+    g_ctrl_diag.filt.v_link_fast_v = app_analog_signal_lpf_step_fast(ADC_CH_V_LINK, phys_v_link);
 
     /* 控制频率分频: 200kHz 采样, 100kHz PI 控制 */
     static uint8_t s_ctrl_div = 0;
@@ -173,10 +126,23 @@ static void buckboost_voltage_loop_isr(void) {
     float phys_v_link;
     app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
     g_ctrl_diag.raw.v_link_v = phys_v_link;
-    g_ctrl_diag.filt.v_link_v = ma_v_link.step(&ma_v_link, phys_v_link);
+    g_ctrl_diag.filt.v_link_v = app_analog_signal_ma_step(ADC_CH_V_LINK, g_ctrl_diag.filt.v_link_fast_v);
 
-    /* 电压外环 PI (50kHz): 算 current_ref 命令, 暂不传递给电流内环 */
-    ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v);
+    /* 负载电流前馈: I_load = I_L × Dmax × (1 - g)
+     * 基于四开关 Buck-Boost 拓扑平均电流关系，适用于 Buck/Boost/Buck-Boost 全工况。
+     * g ∈ [0, 1]: Dmax×(1-g) 为 VLINK 侧导通时间占比。 */
+    float i_l = g_ctrl_diag.filt.i_l_a;
+    float g = ctrl_buckboost_get_generalized_duty(&g_buckboost);
+    float d_max = ctrl_buckboost_get_duty_max(&g_buckboost);
+    float i_load_ff = 0.0f;
+    if (algo_flt_finite(i_l) && algo_flt_finite(g) && algo_flt_finite(d_max)) {
+        float gc = (g < 0.0f) ? 0.0f : (g > 1.0f) ? 1.0f : g;
+        i_load_ff = i_l * d_max * (1.0f - gc);
+    }
+    g_ctrl_diag.ff.i_load_est_a = i_load_ff;
+
+    /* 电压外环 PI (50kHz): PI + 负载电流前馈 → current_ref */
+    ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v, i_load_ff);
 }
 
 ATTR_RAMFUNC
@@ -190,8 +156,8 @@ static void buckboost_power_loop_isr(void) {
     app_analog_signal_convert_raw(ADC_CH_I_IN, raw_i_in, &phys_i_in);
     g_ctrl_diag.raw.v_in_v = phys_v_in;
     g_ctrl_diag.raw.i_in_a = phys_i_in;
-    g_ctrl_diag.filt.v_in_v = ma_v_in.step(&ma_v_in, phys_v_in);
-    g_ctrl_diag.filt.i_in_a = ma_i_in.step(&ma_i_in, phys_i_in);
+    g_ctrl_diag.filt.v_in_v = app_analog_signal_ma_step(ADC_CH_V_IN, phys_v_in);
+    g_ctrl_diag.filt.i_in_a = app_analog_signal_ma_step(ADC_CH_I_IN, phys_i_in);
 
     /* TODO: p_in = v_in * i_in → ctrl_buckboost_update_power() */
 }
@@ -233,23 +199,20 @@ void app_control_init(void) {
     ctrl_fault_init(NULL);
     ctrl_buckboost_init(&g_buckboost);
     ctrl_buckboost_enable(&g_buckboost);
-    ctrl_buckboost_set_il_target(&g_buckboost, 0.5f);
+    ctrl_buckboost_enter_cv_mode(&g_buckboost, 12.0f);
     ctrl_lcc_init(&g_lcc);
 
-    /* 2. 滤波器初始化 */
-    filter_init_all();
-
-    /* 3. GPTMR1 外环定时器 (通过 Platform 层) */
+    /* 2. GPTMR1 外环定时器 (通过 Platform 层) */
     app_gptmr_init();
     app_gptmr_register_callback(APP_GPTMR_CH_VOLTAGE, buckboost_voltage_loop_isr);
     app_gptmr_register_callback(APP_GPTMR_CH_POWER, buckboost_power_loop_isr);
     app_gptmr_start_all();
 
-    /* 4. ADC PMT 完成回调: 电流内环 */
+    /* 3. ADC PMT 完成回调: 电流内环 */
     app_adc_register_pmt_callback(APP_ADC_INST_1, buckboost_current_loop_isr);
     app_adc_register_pmt_callback(APP_ADC_INST_0, lcc_current_loop_isr);
 
-    /* 5. 状态初始化 */
+    /* 4. 状态初始化 */
     s_state = SYS_INIT;
     s_mode = MODE_IDLE;
     s_self_test_ok = false;

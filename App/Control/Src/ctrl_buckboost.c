@@ -326,6 +326,7 @@ int ctrl_buckboost_init(ctrl_buckboost_t* ctrl) {
     ctrl->params.duty_max = BUCKBOOST_DUTY_MAX_DEFAULT;
     ctrl->params.i_l_limit_a = BUCKBOOST_I_L_LIMIT_DEFAULT;
     ctrl->params.v_out_limit_v = BUCKBOOST_V_OUT_LIMIT_DEFAULT;
+    ctrl->params.voltage_ff_gain = 0.8f;
 
     algo_pid_ctor(&ctrl->state.current_pid);
 
@@ -352,8 +353,8 @@ int ctrl_buckboost_init(ctrl_buckboost_t* ctrl) {
     algo_pid_ctor(&ctrl->state.voltage_pid);
     algo_pid_cfg_t voltage_pid_cfg = {
         .mode = ALGO_PID_MODE_POSITIONAL,
-        .kp = 0.05f,
-        .ki = 200.0f,
+        .kp = 1.0f,
+        .ki = 500.0f,
         .kd = 0.0f,
         .sample_time_s = 1.0f / 50000.0f,
         .out_min = BUCKBOOST_VOLTAGE_PID_OUT_MIN,
@@ -522,18 +523,26 @@ void ctrl_buckboost_update_current(ctrl_buckboost_t* ctrl, float i_l, float v_in
  * 电压外环 update (50kHz)
  * ============================================================================ */
 
-void ctrl_buckboost_update_voltage(ctrl_buckboost_t* ctrl, float vlink) {
+void ctrl_buckboost_update_voltage(ctrl_buckboost_t* ctrl, float vlink, float i_load_ff) {
     if (ctrl == NULL || !ctrl->state.enabled) {
         return;
     }
     if (!algo_pid_finite(vlink) || !algo_pid_finite(ctrl->state.v_out_target_v)) {
         return;
     }
-    /* 电压外环 PI: v_out_target → current_ref 命令。
-     * 结果暂存 voltage_pid_out，不传递给电流内环 current_ref (级联传递待下一阶段)。*/
-    float i_ref_cmd =
+    /* 电压外环: PI(v_out_target, vlink) + 负载电流前馈 → current_ref */
+    float pid_out =
         ctrl->state.voltage_pid.step(&ctrl->state.voltage_pid, ctrl->state.v_out_target_v, vlink);
-    ctrl->state.voltage_pid_out = algo_pid_finite(i_ref_cmd) ? i_ref_cmd : 0.0f;
+    float i_ref_cmd = pid_out + i_load_ff * ctrl->params.voltage_ff_gain;
+    if (!algo_pid_finite(i_ref_cmd)) {
+        i_ref_cmd = 0.0f;
+    }
+    float i_limit = ctrl->params.i_l_limit_a;
+    if (i_limit <= 0.0f) i_limit = BUCKBOOST_I_L_LIMIT_DEFAULT;
+    ctrl->state.voltage_pid_out = clampf(i_ref_cmd, -i_limit, i_limit);
+    if (ctrl->state.target_type == BUCKBOOST_TARGET_CV) {
+        ctrl->state.current_ref = ctrl->state.voltage_pid_out;
+    }
 }
 
 /* ============================================================================
@@ -556,6 +565,17 @@ void ctrl_buckboost_set_vout_target(ctrl_buckboost_t* ctrl, float target_v) {
         ctrl->state.v_out_target_v = target_v;
 }
 
+void ctrl_buckboost_enter_cv_mode(ctrl_buckboost_t* ctrl, float target_v) {
+    if (ctrl == NULL || !algo_pid_finite(target_v) || target_v <= 0.0f)
+        return;
+    ctrl->state.v_out_target_v = target_v;
+    ctrl->state.target_type = BUCKBOOST_TARGET_CV;
+    if (ctrl->state.voltage_pid.reset) {
+        ctrl->state.voltage_pid.reset(&ctrl->state.voltage_pid);
+    }
+    ctrl->state.voltage_pid_out = 0.0f;
+}
+
 void ctrl_buckboost_set_il_target(ctrl_buckboost_t* ctrl, float target_a) {
     if (ctrl == NULL)
         return;
@@ -573,6 +593,7 @@ void ctrl_buckboost_set_il_target(ctrl_buckboost_t* ctrl, float target_a) {
         i_l_limit = BUCKBOOST_I_L_LIMIT_DEFAULT;
     }
     /* 不 reset 内环 PID：级联时外环周期更新 ref，reset 会破坏积分连续性 */
+    ctrl->state.target_type = BUCKBOOST_TARGET_CC;
     ctrl->state.current_ref = clampf(target_a, -i_l_limit, i_l_limit);
     ctrl->state.i_l_target_a = target_a;
 }
@@ -597,12 +618,15 @@ void ctrl_buckboost_set_params(ctrl_buckboost_t* ctrl, const ctrl_buckboost_para
             &ctrl->state.voltage_pid, params->voltage_pid.kp, params->voltage_pid.ki,
             params->voltage_pid.kd);
         float i_limit = (algo_pid_finite(params->i_l_limit_a) && params->i_l_limit_a > 0.0f)
-                            ? params->i_l_limit_a : BUCKBOOST_I_L_LIMIT_DEFAULT;
+                          ? params->i_l_limit_a
+                          : BUCKBOOST_I_L_LIMIT_DEFAULT;
         ctrl->state.voltage_pid._out_min = -i_limit;
-        ctrl->state.voltage_pid._out_max =  i_limit;
+        ctrl->state.voltage_pid._out_max = i_limit;
         ctrl->state.voltage_pid._integral_min = -i_limit;
-        ctrl->state.voltage_pid._integral_max =  i_limit;
+        ctrl->state.voltage_pid._integral_max = i_limit;
     }
+    /* 同步前馈增益 (set_params 覆盖 params,需显式写回) */
+    ctrl->params.voltage_ff_gain = params->voltage_ff_gain;
 }
 
 /* ============================================================================

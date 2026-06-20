@@ -70,7 +70,7 @@ static const adc_channel_t s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
     [APP_ANALOG_SIGNAL_ITEM_I_LF] = ADC_CH_I_LF,
 };
 
-static const app_analog_signal_item_t s_channel_to_item[ADC_CH_COUNT] = {
+const app_analog_signal_item_t s_channel_to_item[ADC_CH_COUNT] = {
     [ADC_CH_V_IN] = APP_ANALOG_SIGNAL_ITEM_V_IN,
     [ADC_CH_I_IN] = APP_ANALOG_SIGNAL_ITEM_I_IN,
     [ADC_CH_I_L] = APP_ANALOG_SIGNAL_ITEM_I_L,
@@ -141,13 +141,13 @@ static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] =
                        },
     [ADC_CH_I_L] =
         {
-                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
-                       .cfg.ma = {.window_size = 4U},
+                       .type = APP_ANALOG_SIGNAL_FILTER_LPF,
+                       .cfg.lpf = {.cutoff_hz = 20000.0f, .sample_rate_hz = 200000.0f},
                        },
     [ADC_CH_V_LINK] =
         {
-                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
-                       .cfg.ma = {.window_size = 4U},
+                       .type = APP_ANALOG_SIGNAL_FILTER_LPF,
+                       .cfg.lpf = {.cutoff_hz = 40000.0f, .sample_rate_hz = 200000.0f},
                        },
     [ADC_CH_I_COIL] =
         {
@@ -165,8 +165,8 @@ static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] =
  * Runtime State
  * ============================================================================ */
 
-static algo_ma_t s_ma_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
-static algo_lpf_t s_lpf_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
+algo_ma_t s_ma_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
+algo_lpf_t s_lpf_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_fir_t s_fir_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_biquad_t s_biquad_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 
@@ -330,6 +330,14 @@ static void app_analog_signal_filter_init_item(app_analog_signal_item_t item) {
         (void)app_analog_signal_filter_init_biquad(item, cfg);
         break;
     default: break;
+    }
+    /* V_LINK 需要二级 MA (电压环反馈用)：主配置为 LPF，此处显式初始化 MA */
+    if (item == APP_ANALOG_SIGNAL_ITEM_V_LINK) {
+        app_analog_signal_filter_cfg_t ma_cfg = {
+            .type = APP_ANALOG_SIGNAL_FILTER_MA,
+            .cfg.ma = {.window_size = 4U},
+        };
+        (void)app_analog_signal_filter_init_ma(item, &ma_cfg);
     }
 }
 
@@ -552,6 +560,8 @@ void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float *physic
     }
     *physical = (float)raw * s_cal_gain[ch] + s_cal_offset[ch];
 }
+
+
 
 int app_analog_signal_get_physical(adc_channel_t ch, float *physical)
 {
