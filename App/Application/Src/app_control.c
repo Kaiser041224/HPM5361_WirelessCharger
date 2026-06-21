@@ -141,8 +141,8 @@ static void buckboost_voltage_loop_isr(void) {
     }
     g_ctrl_diag.ff.i_load_est_a = i_load_ff;
 
-    /* 电压外环 PI (50kHz): PI + 负载电流前馈 → current_ref */
-    ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v, i_load_ff);
+    /* 电压外环 + 输出电流环 (50kHz): CV/CC 竞争 → current_ref */
+    ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v, i_load_ff, i_load_ff);
 }
 
 ATTR_RAMFUNC

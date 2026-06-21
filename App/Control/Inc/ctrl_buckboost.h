@@ -50,6 +50,7 @@ typedef enum {
 typedef struct {
     ctrl_buckboost_pid_params_t current_pid;
     ctrl_buckboost_pid_params_t voltage_pid;
+    ctrl_buckboost_pid_params_t current_cc_pid;
     float i_l_limit_a;
     float v_out_limit_v;
     float voltage_ff_gain;
@@ -63,16 +64,19 @@ typedef struct {
 
     float v_out_target_v;
     float i_l_target_a;
+    float i_link_target_a;
 
     algo_pid_t current_pid;
     algo_pid_t voltage_pid;
+    algo_pid_t current_cc_pid;
 
-    volatile float current_ref;        /* 电流内环实际使用的电流命令 (A) */
-    float voltage_pid_out;    /* 电压外环 PI 输出 = 待传递的 current_ref 命令 (A), 当前未接入内环 */
+    volatile float current_ref;
+    float voltage_pid_out;
+    float cc_pid_out;
 
-    float v_cmd;              /* 电流内环 V_L_cmd (V), 有符号平均电感电压命令 */
-    float generalized_duty;   /* 单输入调制命令，范围 0.0-1.0 */
-    bool  vlink_limit_active; /* VLINK 动态限幅迟滞状态 */
+    float v_cmd;
+    float generalized_duty;
+    bool  vlink_limit_active;
     float duty_a;
     float duty_b;
 } ctrl_buckboost_state_t;
@@ -111,7 +115,8 @@ void ctrl_buckboost_update_current(ctrl_buckboost_t *ctrl,
  * 电压外环 update (50kHz)
  *   PI(v_out_target, vlink) + i_load_ff × ff_gain → current_ref
  */
-void ctrl_buckboost_update_voltage(ctrl_buckboost_t *ctrl, float vlink, float i_load_ff);
+void ctrl_buckboost_update_voltage(ctrl_buckboost_t *ctrl, float vlink,
+                                   float i_load_ff, float i_link);
 
 /*
  * 进入恒压 (CV) 模式，配置软起动
@@ -128,6 +133,7 @@ void ctrl_buckboost_update_power(ctrl_buckboost_t *ctrl, float p_in);
 
 void ctrl_buckboost_set_vout_target(ctrl_buckboost_t *ctrl, float target_v);
 void ctrl_buckboost_set_il_target(ctrl_buckboost_t *ctrl, float target_a);
+void ctrl_buckboost_set_ilink_target(ctrl_buckboost_t *ctrl, float target_a);
 void ctrl_buckboost_set_target_type(ctrl_buckboost_t *ctrl, ctrl_buckboost_target_t target);
 void ctrl_buckboost_set_params(ctrl_buckboost_t *ctrl, const ctrl_buckboost_params_t *params);
 
