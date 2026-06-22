@@ -36,7 +36,7 @@ typedef struct {
  */
 static const app_adc_map_t adc_map[ADC_CH_COUNT] = {
     [ADC_CH_V_IN]   = {.inst = APP_ADC_INST_0, .hw_ch = 6},
-    [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_1, .hw_ch = 11},
+    [ADC_CH_I_IN]   = {.inst = APP_ADC_INST_1, .hw_ch = 11},  /* PB08/ch11 */
     [ADC_CH_I_L]    = {.inst = APP_ADC_INST_1, .hw_ch = 2},
     [ADC_CH_V_LINK] = {.inst = APP_ADC_INST_1, .hw_ch = 3},
     [ADC_CH_I_COIL] = {.inst = APP_ADC_INST_0, .hw_ch = 4},
@@ -76,6 +76,7 @@ static intf_adc_ch_t app_adc_encoded_channel(adc_channel_t ch)
 
 static volatile uint16_t pmt_raw_cache[ADC_CH_COUNT];
 static volatile bool pmt_raw_cache_valid[ADC_CH_COUNT];
+static volatile uint16_t pmt_adc1_slot_snapshot[4];
 
 static float s_adc_vref_mv[APP_ADC_INST_COUNT] = {
     [APP_ADC_INST_0] = INTF_ADC_DEFAULT_VREF_MV,
@@ -98,6 +99,14 @@ int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw)
     if (!pmt_raw_cache_valid[ch]) return -2;
     *raw = pmt_raw_cache[ch];
     return 0;
+}
+
+void app_adc_get_pmt_adc1_slots(uint16_t s[4])
+{
+    s[0] = pmt_adc1_slot_snapshot[0];
+    s[1] = pmt_adc1_slot_snapshot[1];
+    s[2] = pmt_adc1_slot_snapshot[2];
+    s[3] = pmt_adc1_slot_snapshot[3];
 }
 
 /* ============================================================================
@@ -162,6 +171,11 @@ static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint
         }
     }
 
+    pmt_adc1_slot_snapshot[0] = values[0];
+    pmt_adc1_slot_snapshot[1] = values[1];
+    pmt_adc1_slot_snapshot[2] = values[2];
+    pmt_adc1_slot_snapshot[3] = values[3];
+
     if (s_pmt_callback[APP_ADC_INST_1] != NULL) {
         s_pmt_callback[APP_ADC_INST_1]();
     }
@@ -208,7 +222,7 @@ void app_adc_init(void)
             .pmt_cb           = app_adc_pmt_cb_adc0,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 15U;
+        cfg.pmt_ch_list[0] = 15U; /* TEST: 恢复 ch15，验证内部短路假说 */
         cfg.pmt_ch_list[1] = 6U;
         cfg.pmt_ch_list[2] = 4U;
         cfg.pmt_ch_list[3] = 5U;
@@ -232,10 +246,10 @@ void app_adc_init(void)
             .pmt_cb           = app_adc_pmt_cb_adc1,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 15U;
+        cfg.pmt_ch_list[0] = 15U; /* TEST: 恢复 ch15 */
         cfg.pmt_ch_list[1] = 3U;
         cfg.pmt_ch_list[2] = 2U;
-        cfg.pmt_ch_list[3] = 11U;
+        cfg.pmt_ch_list[3] = 11U; /* I_IN: PB08/ch11 */
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_1, 0), &cfg);
     }
 

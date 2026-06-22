@@ -35,8 +35,8 @@ volatile uint32_t g_isr_cycles_max = 0;
 volatile uint32_t g_isr_cycles_max_voltage = 0;
 volatile uint32_t g_isr_cycles_max_power = 0;
 
-#define CTRL_FREQ_DIVIDER                 2
-#define APP_CONTROL_CW_TARGET_DEFAULT_W   15.0f
+#define CTRL_FREQ_DIVIDER               2
+#define APP_CONTROL_CW_TARGET_DEFAULT_W 15.0f
 
 /* ============================================================================
  * 控制器实例
@@ -88,17 +88,21 @@ static void buckboost_current_loop_isr(void) {
         float v_in = g_ctrl_diag.filt.v_in_v;
         float v_link = g_ctrl_diag.filt.v_link_fast_v;
 
-        ctrl_buckboost_update_current(&g_buckboost, g_ctrl_diag.filt.i_l_a, v_in, v_link);
+        // ctrl_buckboost_update_current(&g_buckboost, g_ctrl_diag.filt.i_l_a, v_in, v_link);
 
-        g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
-        g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
+        // g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
+        // g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
+
+        // 临时测试，截断控制环路
+        g_ctrl_diag.duty.buckboost_a = 0.3f;
+        g_ctrl_diag.duty.buckboost_b = 0.6f;
+
         app_hrpwm_set_duty_direct_dual(
             HRPWM_BUCKBOOST_A, g_ctrl_diag.duty.buckboost_a, HRPWM_BUCKBOOST_B,
             g_ctrl_diag.duty.buckboost_b);
     }
 
-exit:
-    ;
+exit:;
     elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max) {
         g_isr_cycles_max = elapsed;
@@ -146,7 +150,8 @@ static void buckboost_voltage_loop_isr(void) {
     float phys_v_link;
     app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
     g_ctrl_diag.raw.v_link_v = phys_v_link;
-    g_ctrl_diag.filt.v_link_v = app_analog_signal_ma_step(ADC_CH_V_LINK, g_ctrl_diag.filt.v_link_fast_v);
+    g_ctrl_diag.filt.v_link_v =
+        app_analog_signal_ma_step(ADC_CH_V_LINK, g_ctrl_diag.filt.v_link_fast_v);
 
     /* 负载电流前馈: I_load = I_L × Dmax × (1 - g)
      * 基于四开关 Buck-Boost 拓扑平均电流关系，适用于 Buck/Boost/Buck-Boost 全工况。
@@ -164,8 +169,7 @@ static void buckboost_voltage_loop_isr(void) {
     /* 电压外环 + 输出电流环 (50kHz): CV/CC 竞争 → current_ref */
     ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v, i_load_ff, i_load_ff);
 
-exit:
-    ;
+exit:;
     elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max_voltage) {
         g_isr_cycles_max_voltage = elapsed;
@@ -190,6 +194,8 @@ static void buckboost_power_loop_isr(void) {
     app_analog_signal_convert_raw(ADC_CH_I_IN, raw_i_in, &phys_i_in);
     g_ctrl_diag.raw.v_in_v = phys_v_in;
     g_ctrl_diag.raw.i_in_a = phys_i_in;
+    g_ctrl_diag.cal.i_in_cal_gain = s_cal_gain[ADC_CH_I_IN];
+    g_ctrl_diag.cal.i_in_cal_offset = s_cal_offset[ADC_CH_I_IN];
     g_ctrl_diag.filt.v_in_v = app_analog_signal_ma_step(ADC_CH_V_IN, phys_v_in);
     float i_in_lpf = app_analog_signal_lpf_step_fast(ADC_CH_I_IN, phys_i_in);
     g_ctrl_diag.filt.i_in_a = app_analog_signal_ma_step(ADC_CH_I_IN, i_in_lpf);
@@ -205,8 +211,7 @@ static void buckboost_power_loop_isr(void) {
     g_ctrl_diag.ff.p_target_w = ctrl_buckboost_get_ptarget(&g_buckboost);
     g_ctrl_diag.ff.power_pid_out = ctrl_buckboost_get_power_pid_out(&g_buckboost);
 
-exit:
-    ;
+exit:;
     elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max_power) {
         g_isr_cycles_max_power = elapsed;

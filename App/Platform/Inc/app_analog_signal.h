@@ -31,6 +31,8 @@ typedef enum {
 extern algo_lpf_t s_lpf_filters[];
 extern algo_ma_t s_ma_filters[];
 extern const app_analog_signal_item_t s_channel_to_item[];
+extern float s_cal_gain[];
+extern float s_cal_offset[];
 
 /**
  * @brief 读取结果模式。

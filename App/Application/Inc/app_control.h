@@ -71,6 +71,16 @@ typedef struct {
         float p_target_w;
         float power_pid_out;
     } ff;
+    struct {
+        float i_in_cal_gain;
+        float i_in_cal_offset;
+    } cal;
+    struct {
+        uint16_t slot0; /* dummy ch15 */
+        uint16_t slot1; /* V_LINK ch3 */
+        uint16_t slot2; /* I_L    ch2 */
+        uint16_t slot3; /* I_IN   ch11 */
+    } adc1_dma;
 } ctrl_diag_t;
 
 extern volatile ctrl_diag_t g_ctrl_diag;

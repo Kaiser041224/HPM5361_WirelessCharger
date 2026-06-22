@@ -20,7 +20,7 @@
 #include <string.h>
 
 /* RTT debug — enable to trace PMT DMA data in ISR */
-#define ADC_PMT_ISR_TRACE 0
+#define ADC_PMT_ISR_TRACE 1
 #if ADC_PMT_ISR_TRACE
 # include "SEGGER_RTT.h"
 static uint32_t pmt_trace_cnt[2];
@@ -198,8 +198,6 @@ static void adc_enable_instance_irq(uint8_t inst) {
     adc_inst_t* ai = &adc_instances[inst];
     uint32_t irq = ai->irq;
     if (irq != 0) {
-        /* PLIC: 数字越大优先级越高。ADC1 (inst=1, Buck-Boost 200kHz 电流内环) 优先级
-         * 高于 ADC0 (inst=0, LCC 148kHz)；ADC1=2 不超过已显式配置的 GPTMR(3)、PWM0(2)。 */
         uint32_t priority = (inst == 1U) ? 2U : 1U;
         intc_m_enable_irq_with_priority(irq, priority);
     }
@@ -252,7 +250,7 @@ static void adc_generic_isr(uint8_t inst) {
 
                 adc16_pmt_dma_data_t* dma = (adc16_pmt_dma_data_t*)snap;
 #if ADC_PMT_ISR_TRACE
-                if (inst < 2 && (++pmt_trace_cnt[inst] % 100) == 0) {
+                if (inst < 2 && (++pmt_trace_cnt[inst] % 10000) == 0) {
                     SEGGER_RTT_printf(
                         0, "[PMT] ADC%d t=%d #%lu:\r\n", inst, ai->pmt.trig_ch,
                         pmt_trace_cnt[inst]);
@@ -264,6 +262,11 @@ static void adc_generic_isr(uint8_t inst) {
                 }
 #endif
                 for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
+                    if (i == 0 && ai->pmt.ch_count == 4) {
+                        values[valid] = dma[i].result;
+                        valid++;
+                        continue;
+                    }
                     if (dma[i].cycle_bit == 0) {
                         adc_diag.pmt_invalid_cycle[inst]++;
                         continue;
