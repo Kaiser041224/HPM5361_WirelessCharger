@@ -75,6 +75,12 @@ static intf_adc_ch_t app_adc_encoded_channel(adc_channel_t ch)
  * ============================================================================ */
 
 static volatile uint16_t pmt_raw_cache[ADC_CH_COUNT];
+static volatile bool pmt_raw_cache_valid[ADC_CH_COUNT];
+
+static float s_adc_vref_mv[APP_ADC_INST_COUNT] = {
+    [APP_ADC_INST_0] = INTF_ADC_DEFAULT_VREF_MV,
+    [APP_ADC_INST_1] = INTF_ADC_DEFAULT_VREF_MV,
+};
 
 static app_adc_pmt_callback_t s_pmt_callback[APP_ADC_INST_COUNT];
 
@@ -89,6 +95,7 @@ ATTR_RAMFUNC
 int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw)
 {
     if (!app_adc_channel_is_valid(ch) || raw == NULL) return -1;
+    if (!pmt_raw_cache_valid[ch]) return -2;
     *raw = pmt_raw_cache[ch];
     return 0;
 }
@@ -122,6 +129,7 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
     for (uint8_t i = 1; i < count && i < 4U; i++) {
         if (slot_to_logic[i] < ADC_CH_COUNT) {
             pmt_raw_cache[slot_to_logic[i]] = values[i];
+            pmt_raw_cache_valid[slot_to_logic[i]] = true;
         }
     }
 
@@ -150,6 +158,7 @@ static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint
     for (uint8_t i = 1; i < count && i < 4U; i++) {
         if (slot_to_logic[i] < ADC_CH_COUNT) {
             pmt_raw_cache[slot_to_logic[i]] = values[i];
+            pmt_raw_cache_valid[slot_to_logic[i]] = true;
         }
     }
 
@@ -206,7 +215,7 @@ void app_adc_init(void)
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_0, 0), &cfg);
     }
 
-    /* ADC1 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=3 (PWM1 200kHz) */
+    /* ADC1 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=3 (PWM1 200kHz). */
     {
         memset(pmt_dma1, 0, sizeof(pmt_dma1));
         intf_adc_cfg_t cfg = {
@@ -255,15 +264,25 @@ void app_adc_init(void)
 }
 
 /* ============================================================================
- * Oneshot Read API
+ * Latest Read API
  * ============================================================================ */
+
+static int app_adc_read_latest_raw(adc_channel_t ch, uint16_t *raw)
+{
+    if (!app_adc_channel_is_valid(ch) || raw == NULL) return -1;
+
+    if (pmt_raw_cache_valid[ch]) {
+        *raw = pmt_raw_cache[ch];
+        return 0;
+    }
+
+    return intf_adc_read(app_adc_encoded_channel(ch), raw);
+}
 
 uint16_t app_adc_read_raw(adc_channel_t ch)
 {
-    if (!app_adc_channel_is_valid(ch)) return 0;
-
     uint16_t raw = 0;
-    (void)intf_adc_read(app_adc_encoded_channel(ch), &raw);
+    (void)app_adc_read_latest_raw(ch, &raw);
     return raw;
 }
 
@@ -278,7 +297,13 @@ void app_adc_read_all(uint16_t values[ADC_CH_COUNT])
 int app_adc_read_adc_voltage_mv(adc_channel_t ch, float *voltage_mv)
 {
     if (!app_adc_channel_is_valid(ch) || voltage_mv == NULL) return -1;
-    return intf_adc_read_voltage(app_adc_encoded_channel(ch), voltage_mv);
+
+    uint16_t raw = 0;
+    if (app_adc_read_latest_raw(ch, &raw) != 0) return -1;
+
+    app_adc_inst_t inst = (app_adc_inst_t)adc_map[ch].inst;
+    *voltage_mv = (float)raw * s_adc_vref_mv[inst] / 65535.0f;
+    return 0;
 }
 
 int app_adc_read_sense_voltage_mv(adc_channel_t ch, float *voltage_mv)
@@ -323,6 +348,7 @@ int app_adc_get_calibration(adc_channel_t ch, app_adc_calibration_t *cal)
 void app_adc_set_vref_inst(app_adc_inst_t inst, float mv)
 {
     if (inst >= APP_ADC_INST_COUNT) return;
+    s_adc_vref_mv[inst] = mv;
     intf_adc_set_vref(INTF_ADC_CH(inst, 0), mv);
 }
 
@@ -377,6 +403,8 @@ void app_adc_wdog_init(adc_channel_t ch, uint16_t thshd_high, uint16_t thshd_low
         .wdog_cb_user_data = user_data,
     };
 
+    pmt_raw_cache_valid[ch] = false;
+    pmt_raw_cache[ch] = 0U;
     (void)intf_adc_init(app_adc_encoded_channel(ch), &cfg);
 }
 

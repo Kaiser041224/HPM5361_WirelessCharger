@@ -32,6 +32,10 @@ static const char* analog_signal_units[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
     [APP_ANALOG_SIGNAL_ITEM_I_LF]   = "A",
 };
 
+static uint8_t app_debug_adc_inst(adc_channel_t ch) {
+    return (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 1U : 0U;
+}
+
 static uint32_t app_debug_adc_rate_hz(uint32_t delta, uint32_t elapsed_cycles) {
     if (elapsed_cycles == 0U) {
         return 0U;
@@ -81,7 +85,7 @@ void app_debug_adc_dump_channels(void) {
 
         app_debug_printf(
             "[ADC]  %s   ADC%d  0x%04X   %5u   %8.1f   %9.1f   %8.3f\r\n", adc_ch_names[ch],
-            (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 0 : 1, raw, raw, adc_mv, sense_mv, physical);
+            app_debug_adc_inst(ch), raw, raw, adc_mv, sense_mv, physical);
     }
 }
 
@@ -103,11 +107,10 @@ void app_debug_adc_dump_pmt(void) {
     app_debug_printf("[ADC]  Channel  Inst  Raw(hex)  Raw(dec)     mV\r\n");
 
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
-        int inst = (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 0 : 1;
         float mv = (float)val[ch] * 3300.0f / 65535.0f;
         app_debug_printf(
-            "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch], inst, val[ch], val[ch],
-            mv);
+            "[ADC]  %s   ADC%d  0x%04X   %5u   %7.1f\r\n", adc_ch_names[ch],
+            app_debug_adc_inst(ch), val[ch], val[ch], mv);
     }
 }
 
@@ -203,7 +206,7 @@ void app_debug_adc_dump_diag(void) {
 }
 
 void app_debug_adc_run_tests(void) {
-    app_debug_printf("\r\n[ADC] === ADC Oneshot Channel Scan ===\r\n");
+    app_debug_printf("\r\n[ADC] === ADC Latest Channel Scan ===\r\n");
 
     uint16_t val[ADC_CH_COUNT];
 
@@ -219,6 +222,6 @@ void app_debug_adc_run_tests(void) {
         (void)app_adc_read_adc_voltage_mv(ch, &mv);
         app_debug_printf(
             "[ADC]  %s   ADC%d  0x%04X   %5u   %8.1f\r\n", adc_ch_names[ch],
-            (ch == ADC_CH_I_IN || ch == ADC_CH_I_L || ch == ADC_CH_V_LINK) ? 0 : 1, val[ch], val[ch], mv);
+            app_debug_adc_inst(ch), val[ch], val[ch], mv);
     }
 }

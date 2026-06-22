@@ -34,11 +34,15 @@
 #define BUCKBOOST_I_L_LIMIT_DEFAULT       16.0f
 #define BUCKBOOST_V_OUT_LIMIT_DEFAULT     48.0f
 #define BUCKBOOST_V_OUT_TARGET_DEFAULT    12.0f
-#define BUCKBOOST_I_LINK_TARGET_DEFAULT    1.0f
+#define BUCKBOOST_I_LINK_TARGET_DEFAULT   2.0f
+#define BUCKBOOST_P_TARGET_DEFAULT        15.0f
 #define BUCKBOOST_BUS_SUM_MIN_V           1.0f
 #define BUCKBOOST_VLINK_LIMIT_ENTER_RATIO 1.00f
 #define BUCKBOOST_VLINK_LIMIT_EXIT_RATIO  0.96f
 
+/* 功率环 PID 输出范围 */
+#define BUCKBOOST_POWER_PID_OUT_MAX 27.0f
+#define BUCKBOOST_POWER_PID_OUT_MIN (-BUCKBOOST_POWER_PID_OUT_MAX)
 /* 电流环 PID 输出为有符号平均电感电压命令 V_L_cmd */
 #define BUCKBOOST_CURRENT_PID_OUT_MIN (-48.0f)
 #define BUCKBOOST_CURRENT_PID_OUT_MAX (48.0f)
@@ -394,8 +398,39 @@ int ctrl_buckboost_init(ctrl_buckboost_t* ctrl) {
     };
     ctrl->state.current_cc_pid.init(&ctrl->state.current_cc_pid, &cc_pid_cfg);
 
+    algo_pid_ctor(&ctrl->state.power_pid);
+    algo_pid_cfg_t power_pid_cfg = {
+        .mode = ALGO_PID_MODE_INCREMENTAL,
+        .kp = 0.05f,
+        .ki = 50.0f,
+        .kd = 0.0f,
+        .sample_time_s = 1.0f / 5000.0f,
+        .out_min = BUCKBOOST_POWER_PID_OUT_MIN,
+        .out_max = BUCKBOOST_POWER_PID_OUT_MAX,
+        .integral_min = BUCKBOOST_POWER_PID_OUT_MIN,
+        .integral_max = BUCKBOOST_POWER_PID_OUT_MAX,
+        .antiwindup = ALGO_PID_ANTIWINDUP_CLAMP,
+        .backcalc_coeff = 1.0f,
+        .deriv_filter_coeff = 0.0f,
+        .deriv_on_measurement = true,
+        .rate_limit = 0.0f,
+        .setpoint_weight_p = 1.0f,
+        .setpoint_weight_d = 0.0f,
+    };
+    ctrl->state.power_pid.init(&ctrl->state.power_pid, &power_pid_cfg);
+    ctrl->params.power_pid = (ctrl_buckboost_pid_params_t){
+        .kp = power_pid_cfg.kp,
+        .ki = power_pid_cfg.ki,
+        .kd = power_pid_cfg.kd,
+        .integral_max = BUCKBOOST_POWER_PID_OUT_MAX,
+        .output_max = BUCKBOOST_POWER_PID_OUT_MAX,
+        .output_min = BUCKBOOST_POWER_PID_OUT_MIN,
+    };
+
     ctrl->state.v_out_target_v = BUCKBOOST_V_OUT_TARGET_DEFAULT;
     ctrl->state.i_link_target_a = BUCKBOOST_I_LINK_TARGET_DEFAULT;
+    ctrl->state.p_target_w = BUCKBOOST_P_TARGET_DEFAULT;
+    ctrl->params.p_target_w = BUCKBOOST_P_TARGET_DEFAULT;
 
     return 0;
 }
@@ -417,6 +452,10 @@ int ctrl_buckboost_enable(ctrl_buckboost_t* ctrl) {
     if (ctrl->state.voltage_pid.reset) {
         ctrl->state.voltage_pid.reset(&ctrl->state.voltage_pid);
     }
+    ctrl->state.power_pid_out = 0.0f;
+    if (ctrl->state.power_pid.reset) {
+        ctrl->state.power_pid.reset(&ctrl->state.power_pid);
+    }
     return 0;
 }
 
@@ -430,6 +469,7 @@ void ctrl_buckboost_disable(ctrl_buckboost_t* ctrl) {
     ctrl->state.duty_a = 0.0f;
     ctrl->state.duty_b = 0.0f;
     ctrl->state.voltage_pid_out = 0.0f;
+    ctrl->state.power_pid_out = 0.0f;
 }
 
 void ctrl_buckboost_emergency_stop(ctrl_buckboost_t* ctrl) {
@@ -582,24 +622,48 @@ void ctrl_buckboost_update_voltage(
     ctrl->state.cc_pid_out = i_ref_cc;
 
     /* CV/CC 竞争: 取更保守的值 */
-    float i_ref_cmd = (i_link_target >= 0.0f)
-        ? ((i_ref_cv < i_ref_cc) ? i_ref_cv : i_ref_cc)
-        : ((i_ref_cv > i_ref_cc) ? i_ref_cv : i_ref_cc);
+    float i_ref_cmd = (i_link_target >= 0.0f) ? ((i_ref_cv < i_ref_cc) ? i_ref_cv : i_ref_cc)
+                                              : ((i_ref_cv > i_ref_cc) ? i_ref_cv : i_ref_cc);
 
-    if (ctrl->state.target_type == BUCKBOOST_TARGET_CV) {
+    if (ctrl->state.target_type == BUCKBOOST_TARGET_CV
+        || ctrl->state.target_type == BUCKBOOST_TARGET_CW) {
         ctrl->state.current_ref = i_ref_cmd;
     }
 }
 
 /* ============================================================================
- * 功率外环 update (20kHz)
+ * 功率外环 update (5kHz)
  * ============================================================================ */
 
+ATTR_RAMFUNC
 void ctrl_buckboost_update_power(ctrl_buckboost_t* ctrl, float p_in) {
     if (ctrl == NULL || !ctrl->state.enabled) {
         return;
     }
-    (void)p_in;
+
+    ctrl->state.p_in_w = p_in;
+
+    if (!algo_pid_finite(p_in) || !algo_pid_finite(ctrl->state.p_target_w)) {
+        return;
+    }
+
+    float p_out = ctrl->state.power_pid.step(&ctrl->state.power_pid, ctrl->state.p_target_w, p_in);
+    if (!algo_pid_finite(p_out)) {
+        p_out = 0.0f;
+    }
+
+    float v_limit = ctrl->params.v_out_limit_v;
+    if (!algo_pid_finite(v_limit) || v_limit <= 0.0f) {
+        v_limit = BUCKBOOST_POWER_PID_OUT_MAX;
+    }
+    p_out = clampf(p_out, -v_limit, v_limit);
+
+    ctrl->state.power_pid_out = p_out;
+
+    /* CW 模式级联: 功率环输出 → signed v_out_target_v → 电压环 → signed current_ref */
+    if (ctrl->state.target_type == BUCKBOOST_TARGET_CW) {
+        ctrl->state.v_out_target_v = p_out;
+    }
 }
 
 /* ============================================================================
@@ -620,6 +684,19 @@ void ctrl_buckboost_enter_cv_mode(ctrl_buckboost_t* ctrl, float target_v) {
         ctrl->state.voltage_pid.reset(&ctrl->state.voltage_pid);
     }
     ctrl->state.voltage_pid_out = 0.0f;
+}
+
+void ctrl_buckboost_enter_cw_mode(ctrl_buckboost_t* ctrl, float target_w) {
+    if (ctrl == NULL || !algo_pid_finite(target_w))
+        return;
+    ctrl->state.p_target_w = target_w;
+    ctrl->params.p_target_w = target_w;
+    ctrl->state.target_type = BUCKBOOST_TARGET_CW;
+    float i_link_limit = absf_fast(ctrl->state.i_link_target_a);
+    if (!algo_pid_finite(i_link_limit) || i_link_limit <= 0.0f) {
+        i_link_limit = BUCKBOOST_I_LINK_TARGET_DEFAULT;
+    }
+    ctrl->state.i_link_target_a = (target_w < 0.0f) ? -i_link_limit : i_link_limit;
 }
 
 void ctrl_buckboost_set_il_target(ctrl_buckboost_t* ctrl, float target_a) {
@@ -650,6 +727,20 @@ void ctrl_buckboost_set_ilink_target(ctrl_buckboost_t* ctrl, float target_a) {
     ctrl->state.i_link_target_a = target_a;
 }
 
+void ctrl_buckboost_set_ptarget(ctrl_buckboost_t* ctrl, float target_w) {
+    if (ctrl == NULL || !algo_pid_finite(target_w))
+        return;
+    ctrl->state.p_target_w = target_w;
+    ctrl->params.p_target_w = target_w;
+    if (ctrl->state.target_type == BUCKBOOST_TARGET_CW) {
+        float i_link_limit = absf_fast(ctrl->state.i_link_target_a);
+        if (!algo_pid_finite(i_link_limit) || i_link_limit <= 0.0f) {
+            i_link_limit = BUCKBOOST_I_LINK_TARGET_DEFAULT;
+        }
+        ctrl->state.i_link_target_a = (target_w < 0.0f) ? -i_link_limit : i_link_limit;
+    }
+}
+
 void ctrl_buckboost_set_target_type(ctrl_buckboost_t* ctrl, ctrl_buckboost_target_t target) {
     if (ctrl != NULL)
         ctrl->state.target_type = target;
@@ -676,6 +767,21 @@ void ctrl_buckboost_set_params(ctrl_buckboost_t* ctrl, const ctrl_buckboost_para
         ctrl->state.voltage_pid._out_max = i_limit;
         ctrl->state.voltage_pid._integral_min = -i_limit;
         ctrl->state.voltage_pid._integral_max = i_limit;
+    }
+    if (ctrl->state.power_pid.set_gains) {
+        ctrl->state.power_pid.set_gains(
+            &ctrl->state.power_pid, params->power_pid.kp, params->power_pid.ki,
+            params->power_pid.kd);
+        float v_limit = (algo_pid_finite(params->v_out_limit_v) && params->v_out_limit_v > 0.0f)
+                          ? params->v_out_limit_v
+                          : BUCKBOOST_V_OUT_LIMIT_DEFAULT;
+        ctrl->state.power_pid._out_min = BUCKBOOST_POWER_PID_OUT_MIN;
+        ctrl->state.power_pid._out_max = v_limit;
+        ctrl->state.power_pid._integral_min = BUCKBOOST_POWER_PID_OUT_MIN;
+        ctrl->state.power_pid._integral_max = v_limit;
+    }
+    if (algo_pid_finite(params->p_target_w)) {
+        ctrl->state.p_target_w = params->p_target_w;
     }
     /* 同步前馈增益 (set_params 覆盖 params,需显式写回) */
     ctrl->params.voltage_ff_gain = params->voltage_ff_gain;
@@ -707,6 +813,14 @@ float ctrl_buckboost_get_duty_max(const ctrl_buckboost_t* ctrl) {
 
 float ctrl_buckboost_get_current_ref(const ctrl_buckboost_t* ctrl) {
     return (ctrl != NULL) ? ctrl->state.current_ref : 0.0f;
+}
+
+float ctrl_buckboost_get_ptarget(const ctrl_buckboost_t* ctrl) {
+    return (ctrl != NULL) ? ctrl->state.p_target_w : 0.0f;
+}
+
+float ctrl_buckboost_get_power_pid_out(const ctrl_buckboost_t* ctrl) {
+    return (ctrl != NULL) ? ctrl->state.power_pid_out : 0.0f;
 }
 
 bool ctrl_buckboost_is_enabled(const ctrl_buckboost_t* ctrl) {

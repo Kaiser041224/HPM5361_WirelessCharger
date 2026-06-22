@@ -11,6 +11,11 @@
 
 #include <stddef.h>
 
+/* ILM deployment for hot ISR paths */
+#ifndef ALGO_FILTER_RAMFUNC
+#define ALGO_FILTER_RAMFUNC __attribute__((section(".fast")))
+#endif
+
 /* ═══════════════════════════════════════════════════════════════════════
  *  Moving Average
  * ═══════════════════════════════════════════════════════════════════════ */
@@ -37,30 +42,10 @@ static int algo_ma_init_impl(algo_ma_t *s, const algo_ma_cfg_t *c)
     return 0;
 }
 
+ALGO_FILTER_RAMFUNC
 static float algo_ma_step_impl(algo_ma_t *s, float x)
 {
-    if (!s->_inited) return 0.0f;
-    if (!algo_flt_finite(x)) {
-        return s->_filled ? (s->_sum * s->_inv_size)
-                          : (s->_sum / (float)((s->_idx > 0U) ? s->_idx : 1U));
-    }
-
-    float old = s->_buf[s->_idx];
-    s->_buf[s->_idx] = x;
-
-    s->_idx++;
-    if (s->_idx >= s->_size) s->_idx = 0;
-
-    if (s->_filled) {
-        s->_sum += x - old;
-        return s->_sum * s->_inv_size;
-    }
-
-    s->_sum += x;
-    if (s->_idx == 0) {
-        s->_filled = true;
-    }
-    return s->_sum / (float)((s->_idx > 0U) ? s->_idx : 1U);
+    return algo_ma_step_fast(s, x);
 }
 
 static void algo_ma_reset_impl(algo_ma_t *s)
@@ -391,5 +376,4 @@ void algo_med_ctor(algo_med_t *s)
     s->_y     = 0.0f;
     s->_inited = false;
 }
-
 

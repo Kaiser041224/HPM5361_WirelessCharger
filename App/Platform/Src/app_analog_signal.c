@@ -136,8 +136,8 @@ static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] =
                        },
     [ADC_CH_I_IN] =
         {
-                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
-                       .cfg.ma = {.window_size = 4U},
+                       .type = APP_ANALOG_SIGNAL_FILTER_LPF,
+                       .cfg.lpf = {.cutoff_hz = 20.0f, .sample_rate_hz = 5000.0f},
                        },
     [ADC_CH_I_L] =
         {
@@ -203,6 +203,14 @@ app_analog_signal_snapshot_t g_analog_signal_snapshot;
  */
 static bool app_analog_signal_item_is_valid(app_analog_signal_item_t item) {
     return item < APP_ANALOG_SIGNAL_ITEM_COUNT;
+}
+
+static void
+    app_analog_signal_update_fast_calibration(adc_channel_t ch, const app_adc_calibration_t* cal) {
+    float vref_over_range = INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
+
+    s_cal_gain[ch] = vref_over_range * cal->sense_gain * cal->physical_gain;
+    s_cal_offset[ch] = cal->sense_offset_mv * cal->physical_gain + cal->physical_offset;
 }
 
 /**
@@ -331,11 +339,13 @@ static void app_analog_signal_filter_init_item(app_analog_signal_item_t item) {
         break;
     default: break;
     }
-    /* V_LINK 需要二级 MA (电压环反馈用)：主配置为 LPF，此处显式初始化 MA */
-    if (item == APP_ANALOG_SIGNAL_ITEM_V_LINK) {
+    /* V_LINK/I_IN 需要二级 MA：主配置为 LPF，此处显式初始化 MA。
+     * V_LINK: 电压环反馈平滑。
+     * I_IN: 功率环输入电流重滤波，抑制输入母线脉动单点采样。 */
+    if (item == APP_ANALOG_SIGNAL_ITEM_V_LINK || item == APP_ANALOG_SIGNAL_ITEM_I_IN) {
         app_analog_signal_filter_cfg_t ma_cfg = {
             .type = APP_ANALOG_SIGNAL_FILTER_MA,
-            .cfg.ma = {.window_size = 4U},
+            .cfg.ma = {.window_size = (item == APP_ANALOG_SIGNAL_ITEM_I_IN) ? 8U : 4U},
         };
         (void)app_analog_signal_filter_init_ma(item, &ma_cfg);
     }
@@ -510,11 +520,7 @@ void app_analog_signal_snapshot_refresh_raw(void) {
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
         uint16_t raw;
         if (app_adc_get_pmt_raw(ch, &raw) == 0) {
-            float adc_mv = (float)raw * INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
-            float sense_mv = adc_mv * s_default_calibration[ch].sense_gain
-                           + s_default_calibration[ch].sense_offset_mv;
-            float physical = sense_mv * s_default_calibration[ch].physical_gain
-                           + s_default_calibration[ch].physical_offset;
+            float physical = (float)raw * s_cal_gain[ch] + s_cal_offset[ch];
             app_analog_signal_item_t item = s_channel_to_item[ch];
             *snapshot_field_ptr(&g_analog_signal_snapshot.raw, item) = physical;
         }
@@ -536,12 +542,8 @@ void app_analog_signal_init(void) {
 
     app_analog_signal_load_default_calibration();
 
-    /* 预计算合并校准系数: physical = raw * gain + offset */
-    float vref_over_range = INTF_ADC_DEFAULT_VREF_MV / 65535.0f;
     for (adc_channel_t ch = ADC_CH_V_IN; ch < ADC_CH_COUNT; ch++) {
-        const app_adc_calibration_t *cal = &s_default_calibration[ch];
-        s_cal_gain[ch]   = vref_over_range * cal->sense_gain * cal->physical_gain;
-        s_cal_offset[ch] = cal->sense_offset_mv * cal->physical_gain + cal->physical_offset;
+        app_analog_signal_update_fast_calibration(ch, &s_default_calibration[ch]);
     }
 
     for (app_analog_signal_item_t item = APP_ANALOG_SIGNAL_ITEM_V_IN;
@@ -553,18 +555,14 @@ void app_analog_signal_init(void) {
 }
 
 ATTR_RAMFUNC
-void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float *physical)
-{
+void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float* physical) {
     if (ch >= ADC_CH_COUNT || physical == NULL) {
         return;
     }
     *physical = (float)raw * s_cal_gain[ch] + s_cal_offset[ch];
 }
 
-
-
-int app_analog_signal_get_physical(adc_channel_t ch, float *physical)
-{
+int app_analog_signal_get_physical(adc_channel_t ch, float* physical) {
     if (ch >= ADC_CH_COUNT || physical == NULL || !s_raw_cache_valid[ch]) {
         return -1;
     }
@@ -629,6 +627,7 @@ int app_analog_signal_set_channel_calibration(
     }
 
     app_adc_set_calibration(ch, calibration);
+    app_analog_signal_update_fast_calibration(ch, calibration);
     return 0;
 }
 

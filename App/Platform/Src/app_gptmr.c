@@ -19,7 +19,7 @@
 #define APP_GPTMR_CH_BASE       (APP_GPTMR_INSTANCE * 4U)
 
 #define APP_GPTMR_VOLTAGE_FREQ  50000U
-#define APP_GPTMR_POWER_FREQ    20000U
+#define APP_GPTMR_POWER_FREQ    5000U
 
 extern void hpm_gptmr_driver_register(void);
 

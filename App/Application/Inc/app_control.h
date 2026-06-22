@@ -32,6 +32,7 @@ typedef enum {
     MODE_LCC_OPEN   = 3,
     MODE_LCC_CLOSED = 4,
     MODE_STANDBY    = 5,
+    MODE_BUCK_CW    = 6,
 } op_mode_t;
 
 typedef struct {
@@ -43,6 +44,12 @@ typedef struct {
         float i_coil_a;
         float i_lf_a;
     } raw;
+    struct {
+        uint16_t i_l;
+        uint16_t v_link;
+        uint16_t i_in;
+        uint16_t v_in;
+    } raw_adc;
     struct {
         float i_l_a;
         float v_link_v;      /* MA4 @50kHz: 电压外环反馈用 (稳态平滑) */
@@ -60,6 +67,9 @@ typedef struct {
     } duty;
     struct {
         float i_load_est_a;
+        float p_in_w;
+        float p_target_w;
+        float power_pid_out;
     } ff;
 } ctrl_diag_t;
 

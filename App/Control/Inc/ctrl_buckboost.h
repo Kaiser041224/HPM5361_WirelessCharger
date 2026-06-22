@@ -45,14 +45,17 @@ typedef struct {
 typedef enum {
     BUCKBOOST_TARGET_CV = 0,
     BUCKBOOST_TARGET_CC = 1,
+    BUCKBOOST_TARGET_CW = 2,
 } ctrl_buckboost_target_t;
 
 typedef struct {
     ctrl_buckboost_pid_params_t current_pid;
     ctrl_buckboost_pid_params_t voltage_pid;
     ctrl_buckboost_pid_params_t current_cc_pid;
+    ctrl_buckboost_pid_params_t power_pid;
     float i_l_limit_a;
     float v_out_limit_v;
+    float p_target_w;
     float voltage_ff_gain;
     float duty_min;
     float duty_max;
@@ -65,14 +68,18 @@ typedef struct {
     float v_out_target_v;
     float i_l_target_a;
     float i_link_target_a;
+    float p_target_w;
+    float p_in_w;
 
     algo_pid_t current_pid;
     algo_pid_t voltage_pid;
     algo_pid_t current_cc_pid;
+    algo_pid_t power_pid;
 
     volatile float current_ref;
     float voltage_pid_out;
     float cc_pid_out;
+    float power_pid_out;
 
     float v_cmd;
     float generalized_duty;
@@ -126,14 +133,23 @@ void ctrl_buckboost_update_voltage(ctrl_buckboost_t *ctrl, float vlink,
 void ctrl_buckboost_enter_cv_mode(ctrl_buckboost_t *ctrl, float target_v);
 
 /*
- * 功率外环 update (20kHz)
- *   PI(p_target, p_in) → v_out_target_v
+ * 进入恒功率 (CW) 模式，支持双向 (target_w 可为正/负)
+ *   - 设定 p_target_w, target_type 自动设为 BUCKBOOST_TARGET_CW
+ *   - 不 reset PID, 保留积分连续性实现平滑模式切换
+ */
+void ctrl_buckboost_enter_cw_mode(ctrl_buckboost_t *ctrl, float target_w);
+
+/*
+ * 功率外环 update (5kHz)
+ *   增量式 PI(p_target, p_in) → power_pid_out
+ *   双向: PID 输出作为 signed v_out_target_v，再由电压环产生 signed current_ref
  */
 void ctrl_buckboost_update_power(ctrl_buckboost_t *ctrl, float p_in);
 
 void ctrl_buckboost_set_vout_target(ctrl_buckboost_t *ctrl, float target_v);
 void ctrl_buckboost_set_il_target(ctrl_buckboost_t *ctrl, float target_a);
 void ctrl_buckboost_set_ilink_target(ctrl_buckboost_t *ctrl, float target_a);
+void ctrl_buckboost_set_ptarget(ctrl_buckboost_t *ctrl, float target_w);
 void ctrl_buckboost_set_target_type(ctrl_buckboost_t *ctrl, ctrl_buckboost_target_t target);
 void ctrl_buckboost_set_params(ctrl_buckboost_t *ctrl, const ctrl_buckboost_params_t *params);
 
@@ -143,6 +159,8 @@ float ctrl_buckboost_get_v_cmd(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_generalized_duty(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_duty_max(const ctrl_buckboost_t *ctrl);
 float ctrl_buckboost_get_current_ref(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_ptarget(const ctrl_buckboost_t *ctrl);
+float ctrl_buckboost_get_power_pid_out(const ctrl_buckboost_t *ctrl);
 bool  ctrl_buckboost_is_enabled(const ctrl_buckboost_t *ctrl);
 
 #ifdef __cplusplus

@@ -64,6 +64,33 @@ struct algo_ma {
 
 void algo_ma_ctor(algo_ma_t *s);
 
+static inline float algo_ma_step_fast(algo_ma_t *s, float x)
+{
+    if (!s->_inited) return 0.0f;
+
+    if (!algo_flt_finite(x)) {
+        return s->_filled ? (s->_sum * s->_inv_size)
+                          : (s->_sum / (float)((s->_idx > 0U) ? s->_idx : 1U));
+    }
+
+    float old = s->_buf[s->_idx];
+    s->_buf[s->_idx] = x;
+
+    s->_idx++;
+    if (s->_idx >= s->_size) s->_idx = 0;
+
+    if (s->_filled) {
+        s->_sum += x - old;
+        return s->_sum * s->_inv_size;
+    }
+
+    s->_sum += x;
+    if (s->_idx == 0U) {
+        s->_filled = true;
+    }
+    return s->_sum / (float)((s->_idx > 0U) ? s->_idx : 1U);
+}
+
 /* ════════════════════════════════════════════════════════════════════════
  *  1st-Order Low-Pass  —  一阶 IIR 低通
  *

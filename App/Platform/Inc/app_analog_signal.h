@@ -141,7 +141,7 @@ static inline float app_analog_signal_ma_step(adc_channel_t ch, float value)
 {
     if (ch >= ADC_CH_COUNT) return value;
     algo_ma_t *ma = &s_ma_filters[s_channel_to_item[ch]];
-    return (ma->_inited && ma->step) ? ma->step(ma, value) : value;
+    return ma->_inited ? algo_ma_step_fast(ma, value) : value;
 }
 
 /**

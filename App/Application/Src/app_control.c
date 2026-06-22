@@ -32,8 +32,11 @@
 /* 放入 DLM (fast_ram.bss)，ISR 中高频写入，主循环读取，消除 flash 访问延迟 */
 ATTR_PLACE_AT_FAST_RAM_BSS volatile ctrl_diag_t g_ctrl_diag;
 volatile uint32_t g_isr_cycles_max = 0;
+volatile uint32_t g_isr_cycles_max_voltage = 0;
+volatile uint32_t g_isr_cycles_max_power = 0;
 
-#define CTRL_FREQ_DIVIDER    2
+#define CTRL_FREQ_DIVIDER                 2
+#define APP_CONTROL_CW_TARGET_DEFAULT_W   15.0f
 
 /* ============================================================================
  * 控制器实例
@@ -55,10 +58,14 @@ static ctrl_lcc_t g_lcc;
 ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
     uint32_t t0 = irq_prof_read_cycle();
+    uint32_t elapsed;
 
     /* I_L: 每个周期读取 + 转换 + 滤波 (200kHz) */
     uint16_t raw_i_l;
-    app_adc_get_pmt_raw(ADC_CH_I_L, &raw_i_l);
+    if (app_adc_get_pmt_raw(ADC_CH_I_L, &raw_i_l) != 0) {
+        goto exit;
+    }
+    g_ctrl_diag.raw_adc.i_l = raw_i_l;
     float phys_i_l;
     app_analog_signal_convert_raw(ADC_CH_I_L, raw_i_l, &phys_i_l);
     g_ctrl_diag.raw.i_l_a = phys_i_l;
@@ -66,7 +73,10 @@ static void buckboost_current_loop_isr(void) {
 
     /* V_LINK: 同周期新鲜采样 + 轻 LPF，供前馈使用 (减小前馈相位滞后) */
     uint16_t raw_v_link;
-    app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link);
+    if (app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link) != 0) {
+        goto exit;
+    }
+    g_ctrl_diag.raw_adc.v_link = raw_v_link;
     float phys_v_link;
     app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
     g_ctrl_diag.filt.v_link_fast_v = app_analog_signal_lpf_step_fast(ADC_CH_V_LINK, phys_v_link);
@@ -87,7 +97,9 @@ static void buckboost_current_loop_isr(void) {
             g_ctrl_diag.duty.buckboost_b);
     }
 
-    uint32_t elapsed = irq_prof_read_cycle() - t0;
+exit:
+    ;
+    elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max) {
         g_isr_cycles_max = elapsed;
     }
@@ -100,8 +112,10 @@ static void buckboost_current_loop_isr(void) {
 ATTR_RAMFUNC
 static void lcc_current_loop_isr(void) {
     uint16_t raw_i_coil, raw_i_lf;
-    app_adc_get_pmt_raw(ADC_CH_I_COIL, &raw_i_coil);
-    app_adc_get_pmt_raw(ADC_CH_I_LF, &raw_i_lf);
+    if (app_adc_get_pmt_raw(ADC_CH_I_COIL, &raw_i_coil) != 0
+        || app_adc_get_pmt_raw(ADC_CH_I_LF, &raw_i_lf) != 0) {
+        return;
+    }
 
     float phys_i_coil, phys_i_lf;
     app_analog_signal_convert_raw(ADC_CH_I_COIL, raw_i_coil, &phys_i_coil);
@@ -120,8 +134,14 @@ static void lcc_current_loop_isr(void) {
 
 ATTR_RAMFUNC
 static void buckboost_voltage_loop_isr(void) {
+    uint32_t t0 = irq_prof_read_cycle();
+    uint32_t elapsed;
+
     uint16_t raw_v_link;
-    app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link);
+    if (app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link) != 0) {
+        goto exit;
+    }
+    g_ctrl_diag.raw_adc.v_link = raw_v_link;
 
     float phys_v_link;
     app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
@@ -143,13 +163,27 @@ static void buckboost_voltage_loop_isr(void) {
 
     /* 电压外环 + 输出电流环 (50kHz): CV/CC 竞争 → current_ref */
     ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v, i_load_ff, i_load_ff);
+
+exit:
+    ;
+    elapsed = irq_prof_read_cycle() - t0;
+    if (elapsed > g_isr_cycles_max_voltage) {
+        g_isr_cycles_max_voltage = elapsed;
+    }
 }
 
 ATTR_RAMFUNC
 static void buckboost_power_loop_isr(void) {
+    uint32_t t0 = irq_prof_read_cycle();
+    uint32_t elapsed;
+
     uint16_t raw_v_in, raw_i_in;
-    app_adc_get_pmt_raw(ADC_CH_V_IN, &raw_v_in);
-    app_adc_get_pmt_raw(ADC_CH_I_IN, &raw_i_in);
+    if (app_adc_get_pmt_raw(ADC_CH_V_IN, &raw_v_in) != 0
+        || app_adc_get_pmt_raw(ADC_CH_I_IN, &raw_i_in) != 0) {
+        goto exit;
+    }
+    g_ctrl_diag.raw_adc.v_in = raw_v_in;
+    g_ctrl_diag.raw_adc.i_in = raw_i_in;
 
     float phys_v_in, phys_i_in;
     app_analog_signal_convert_raw(ADC_CH_V_IN, raw_v_in, &phys_v_in);
@@ -157,9 +191,26 @@ static void buckboost_power_loop_isr(void) {
     g_ctrl_diag.raw.v_in_v = phys_v_in;
     g_ctrl_diag.raw.i_in_a = phys_i_in;
     g_ctrl_diag.filt.v_in_v = app_analog_signal_ma_step(ADC_CH_V_IN, phys_v_in);
-    g_ctrl_diag.filt.i_in_a = app_analog_signal_ma_step(ADC_CH_I_IN, phys_i_in);
+    float i_in_lpf = app_analog_signal_lpf_step_fast(ADC_CH_I_IN, phys_i_in);
+    g_ctrl_diag.filt.i_in_a = app_analog_signal_ma_step(ADC_CH_I_IN, i_in_lpf);
 
-    /* TODO: p_in = v_in * i_in → ctrl_buckboost_update_power() */
+    float p_in = g_ctrl_diag.filt.v_in_v * g_ctrl_diag.filt.i_in_a;
+    if (!algo_flt_finite(p_in)) {
+        p_in = 0.0f;
+    }
+
+    ctrl_buckboost_update_power(&g_buckboost, p_in);
+
+    g_ctrl_diag.ff.p_in_w = p_in;
+    g_ctrl_diag.ff.p_target_w = ctrl_buckboost_get_ptarget(&g_buckboost);
+    g_ctrl_diag.ff.power_pid_out = ctrl_buckboost_get_power_pid_out(&g_buckboost);
+
+exit:
+    ;
+    elapsed = irq_prof_read_cycle() - t0;
+    if (elapsed > g_isr_cycles_max_power) {
+        g_isr_cycles_max_power = elapsed;
+    }
 }
 
 /* ============================================================================
@@ -184,6 +235,9 @@ static void configure_controllers_for_mode(void) {
     switch (s_mode) {
     case MODE_BUCK_CV: ctrl_buckboost_set_target_type(&g_buckboost, BUCKBOOST_TARGET_CV); break;
     case MODE_BUCK_CC: ctrl_buckboost_set_target_type(&g_buckboost, BUCKBOOST_TARGET_CC); break;
+    case MODE_BUCK_CW:
+        ctrl_buckboost_enter_cw_mode(&g_buckboost, APP_CONTROL_CW_TARGET_DEFAULT_W);
+        break;
     case MODE_LCC_OPEN: ctrl_lcc_set_mode(&g_lcc, LCC_MODE_OPEN_LOOP); break;
     case MODE_LCC_CLOSED: ctrl_lcc_set_mode(&g_lcc, LCC_MODE_CLOSED_LOOP); break;
     default: break;
@@ -199,22 +253,24 @@ void app_control_init(void) {
     ctrl_fault_init(NULL);
     ctrl_buckboost_init(&g_buckboost);
     ctrl_buckboost_enable(&g_buckboost);
-    ctrl_buckboost_enter_cv_mode(&g_buckboost, 12.0f);
+    ctrl_buckboost_enter_cw_mode(&g_buckboost, APP_CONTROL_CW_TARGET_DEFAULT_W);
     ctrl_lcc_init(&g_lcc);
 
-    /* 2. GPTMR1 外环定时器 (通过 Platform 层) */
+    /* 2. GPTMR1 外环定时器 (通过 Platform 层)，先注册定时器回调但暂不启动 */
     app_gptmr_init();
     app_gptmr_register_callback(APP_GPTMR_CH_VOLTAGE, buckboost_voltage_loop_isr);
     app_gptmr_register_callback(APP_GPTMR_CH_POWER, buckboost_power_loop_isr);
-    app_gptmr_start_all();
 
-    /* 3. ADC PMT 完成回调: 电流内环 */
+    /* 3. ADC PMT 完成回调: 电流内环，必须早于 GPTMR 外环启动 */
     app_adc_register_pmt_callback(APP_ADC_INST_1, buckboost_current_loop_isr);
     app_adc_register_pmt_callback(APP_ADC_INST_0, lcc_current_loop_isr);
 
-    /* 4. 状态初始化 */
+    /* 4. 外环定时器启动: PMT cache 尚未有效时 ISR 会跳过本轮 */
+    app_gptmr_start_all();
+
+    /* 5. 状态初始化 */
     s_state = SYS_INIT;
-    s_mode = MODE_IDLE;
+    s_mode = MODE_BUCK_CW;
     s_self_test_ok = false;
 }
 
@@ -269,6 +325,7 @@ int app_control_set_mode(op_mode_t mode) {
         break;
     case MODE_BUCK_CV:
     case MODE_BUCK_CC:
+    case MODE_BUCK_CW:
     case MODE_LCC_OPEN:
     case MODE_LCC_CLOSED:
         if (s_state != SYS_IDLE && s_state != SYS_RUN)
