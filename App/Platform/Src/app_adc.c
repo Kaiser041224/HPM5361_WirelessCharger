@@ -76,7 +76,6 @@ static intf_adc_ch_t app_adc_encoded_channel(adc_channel_t ch)
 
 static volatile uint16_t pmt_raw_cache[ADC_CH_COUNT];
 static volatile bool pmt_raw_cache_valid[ADC_CH_COUNT];
-static volatile uint16_t pmt_adc1_slot_snapshot[4];
 
 static float s_adc_vref_mv[APP_ADC_INST_COUNT] = {
     [APP_ADC_INST_0] = INTF_ADC_DEFAULT_VREF_MV,
@@ -101,14 +100,6 @@ int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t *raw)
     return 0;
 }
 
-void app_adc_get_pmt_adc1_slots(uint16_t s[4])
-{
-    s[0] = pmt_adc1_slot_snapshot[0];
-    s[1] = pmt_adc1_slot_snapshot[1];
-    s[2] = pmt_adc1_slot_snapshot[2];
-    s[3] = pmt_adc1_slot_snapshot[3];
-}
-
 /* ============================================================================
  * PMT DMA Buffers (non-cacheable, 4-byte aligned)
  * ============================================================================ */
@@ -130,9 +121,9 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
 
     static const adc_channel_t slot_to_logic[4] = {
         [0] = ADC_CH_COUNT,
-        [1] = ADC_CH_V_IN,
-        [2] = ADC_CH_I_COIL,
-        [3] = ADC_CH_I_LF,
+        [1] = ADC_CH_I_L,
+        [2] = ADC_CH_I_IN,
+        [3] = ADC_CH_V_LINK,
     };
 
     for (uint8_t i = 1; i < count && i < 4U; i++) {
@@ -142,8 +133,8 @@ static void app_adc_pmt_cb_adc0(intf_adc_ch_t trig, const uint16_t *values, uint
         }
     }
 
-    if (s_pmt_callback[APP_ADC_INST_0] != NULL) {
-        s_pmt_callback[APP_ADC_INST_0]();
+    if (s_pmt_callback[APP_ADC_INST_1] != NULL) {
+        s_pmt_callback[APP_ADC_INST_1]();
     }
 
     IRQ_PROF_EXIT(g_prof_adc0);
@@ -159,22 +150,16 @@ static void app_adc_pmt_cb_adc1(intf_adc_ch_t trig, const uint16_t *values, uint
 
     static const adc_channel_t slot_to_logic[4] = {
         [0] = ADC_CH_COUNT,
-        [1] = ADC_CH_V_LINK,
+        [1] = ADC_CH_I_IN,
         [2] = ADC_CH_I_L,
-        [3] = ADC_CH_I_IN,
+        [3] = ADC_CH_V_LINK,
     };
-
     for (uint8_t i = 1; i < count && i < 4U; i++) {
         if (slot_to_logic[i] < ADC_CH_COUNT) {
             pmt_raw_cache[slot_to_logic[i]] = values[i];
             pmt_raw_cache_valid[slot_to_logic[i]] = true;
         }
     }
-
-    pmt_adc1_slot_snapshot[0] = values[0];
-    pmt_adc1_slot_snapshot[1] = values[1];
-    pmt_adc1_slot_snapshot[2] = values[2];
-    pmt_adc1_slot_snapshot[3] = values[3];
 
     if (s_pmt_callback[APP_ADC_INST_1] != NULL) {
         s_pmt_callback[APP_ADC_INST_1]();
@@ -222,14 +207,18 @@ void app_adc_init(void)
             .pmt_cb           = app_adc_pmt_cb_adc0,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 15U; /* TEST: 恢复 ch15，验证内部短路假说 */
+        cfg.pmt_ch_list[0] = 15U;
         cfg.pmt_ch_list[1] = 6U;
         cfg.pmt_ch_list[2] = 4U;
         cfg.pmt_ch_list[3] = 5U;
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_0, 0), &cfg);
     }
 
-    /* ADC1 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=3 (PWM1 200kHz). */
+    /* ADC1 PMT — 4 channels (dummy, I_L, I_IN, V_LINK) on trig_ch=3 (PWM1 200kHz).
+     *
+     * I_L 最前 (2.40μs) 保证电感电流在中心点附近采样；
+     * I_IN 在 slot2 (3.55μs) 处于输入开关导通期后半段，但功率外环不使用 ADC 瞬时值；
+     * V_LINK 在 slot3，DC 电压任意位置均可。 */
     {
         memset(pmt_dma1, 0, sizeof(pmt_dma1));
         intf_adc_cfg_t cfg = {
@@ -246,10 +235,10 @@ void app_adc_init(void)
             .pmt_cb           = app_adc_pmt_cb_adc1,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 15U; /* TEST: 恢复 ch15 */
-        cfg.pmt_ch_list[1] = 3U;
-        cfg.pmt_ch_list[2] = 2U;
-        cfg.pmt_ch_list[3] = 11U; /* I_IN: PB08/ch11 */
+        cfg.pmt_ch_list[0] = 15U;
+        cfg.pmt_ch_list[1] = 2U;  /* I_L 最先 */
+        cfg.pmt_ch_list[2] = 11U; /* I_IN */
+        cfg.pmt_ch_list[3] = 3U;  /* V_LINK */
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_1, 0), &cfg);
     }
 

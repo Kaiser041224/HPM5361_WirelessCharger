@@ -88,7 +88,6 @@ void app_adc_calibrate(void);
 void app_adc_pmt_start_inst(app_adc_inst_t inst);
 void app_adc_pmt_stop_inst(app_adc_inst_t inst);
 int app_adc_get_pmt_raw(adc_channel_t ch, uint16_t* raw);
-void app_adc_get_pmt_adc1_slots(uint16_t s[4]);
 
 void app_adc_wdog_init(
     adc_channel_t ch, uint16_t thshd_high, uint16_t thshd_low, intf_adc_wdog_cb_t cb,

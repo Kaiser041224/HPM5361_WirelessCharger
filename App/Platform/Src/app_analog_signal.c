@@ -183,8 +183,8 @@ static bool s_filtered_cache_valid[ADC_CH_COUNT];
 
 /* 预计算合并校准系数: physical = raw * cal_gain + cal_offset
  * 放入 DLM (fast_ram.bss)，ISR 中每个周期读取，消除 flash 访问延迟 */
-ATTR_PLACE_AT_FAST_RAM_BSS float s_cal_gain[ADC_CH_COUNT];
-ATTR_PLACE_AT_FAST_RAM_BSS float s_cal_offset[ADC_CH_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS static float s_cal_gain[ADC_CH_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS static float s_cal_offset[ADC_CH_COUNT];
 
 static bool s_initialized;
 

@@ -19,13 +19,6 @@
 #include <stddef.h>
 #include <string.h>
 
-/* RTT debug — enable to trace PMT DMA data in ISR */
-#define ADC_PMT_ISR_TRACE 1
-#if ADC_PMT_ISR_TRACE
-# include "SEGGER_RTT.h"
-static uint32_t pmt_trace_cnt[2];
-#endif
-
 #define ADC_DEFAULT_VREF_MV      INTF_ADC_DEFAULT_VREF_MV
 #define ADC_DEFAULT_SAMPLE_CYCLE INTF_ADC_DEFAULT_SAMPLE_CYCLE
 #define ADC_DEFAULT_CLOCK_DIV    INTF_ADC_DEFAULT_CLOCK_DIV
@@ -249,18 +242,6 @@ static void adc_generic_isr(uint8_t inst) {
                 restore_global_irq(mstatus);
 
                 adc16_pmt_dma_data_t* dma = (adc16_pmt_dma_data_t*)snap;
-#if ADC_PMT_ISR_TRACE
-                if (inst < 2 && (++pmt_trace_cnt[inst] % 10000) == 0) {
-                    SEGGER_RTT_printf(
-                        0, "[PMT] ADC%d t=%d #%lu:\r\n", inst, ai->pmt.trig_ch,
-                        pmt_trace_cnt[inst]);
-                    for (uint8_t t = 0; t < 4; t++) {
-                        SEGGER_RTT_printf(
-                            0, "  [%d] raw=0x%08X cb=%d tc=%d ac=%d res=0x%04X\r\n", t, snap[t],
-                            dma[t].cycle_bit, dma[t].trig_ch, dma[t].adc_ch, dma[t].result);
-                    }
-                }
-#endif
                 for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
                     if (i == 0 && ai->pmt.ch_count == 4) {
                         values[valid] = dma[i].result;

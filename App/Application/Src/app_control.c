@@ -88,14 +88,10 @@ static void buckboost_current_loop_isr(void) {
         float v_in = g_ctrl_diag.filt.v_in_v;
         float v_link = g_ctrl_diag.filt.v_link_fast_v;
 
-        // ctrl_buckboost_update_current(&g_buckboost, g_ctrl_diag.filt.i_l_a, v_in, v_link);
+        ctrl_buckboost_update_current(&g_buckboost, g_ctrl_diag.filt.i_l_a, v_in, v_link);
 
-        // g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
-        // g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
-
-        // 临时测试，截断控制环路
-        g_ctrl_diag.duty.buckboost_a = 0.3f;
-        g_ctrl_diag.duty.buckboost_b = 0.6f;
+        g_ctrl_diag.duty.buckboost_a = ctrl_buckboost_get_duty_a(&g_buckboost);
+        g_ctrl_diag.duty.buckboost_b = ctrl_buckboost_get_duty_b(&g_buckboost);
 
         app_hrpwm_set_duty_direct_dual(
             HRPWM_BUCKBOOST_A, g_ctrl_diag.duty.buckboost_a, HRPWM_BUCKBOOST_B,
@@ -181,26 +177,30 @@ static void buckboost_power_loop_isr(void) {
     uint32_t t0 = irq_prof_read_cycle();
     uint32_t elapsed;
 
-    uint16_t raw_v_in, raw_i_in;
-    if (app_adc_get_pmt_raw(ADC_CH_V_IN, &raw_v_in) != 0
-        || app_adc_get_pmt_raw(ADC_CH_I_IN, &raw_i_in) != 0) {
+    uint16_t raw_v_in;
+    if (app_adc_get_pmt_raw(ADC_CH_V_IN, &raw_v_in) != 0) {
         goto exit;
     }
     g_ctrl_diag.raw_adc.v_in = raw_v_in;
-    g_ctrl_diag.raw_adc.i_in = raw_i_in;
 
-    float phys_v_in, phys_i_in;
+    float phys_v_in;
     app_analog_signal_convert_raw(ADC_CH_V_IN, raw_v_in, &phys_v_in);
-    app_analog_signal_convert_raw(ADC_CH_I_IN, raw_i_in, &phys_i_in);
     g_ctrl_diag.raw.v_in_v = phys_v_in;
-    g_ctrl_diag.raw.i_in_a = phys_i_in;
-    g_ctrl_diag.cal.i_in_cal_gain = s_cal_gain[ADC_CH_I_IN];
-    g_ctrl_diag.cal.i_in_cal_offset = s_cal_offset[ADC_CH_I_IN];
     g_ctrl_diag.filt.v_in_v = app_analog_signal_ma_step(ADC_CH_V_IN, phys_v_in);
-    float i_in_lpf = app_analog_signal_lpf_step_fast(ADC_CH_I_IN, phys_i_in);
-    g_ctrl_diag.filt.i_in_a = app_analog_signal_ma_step(ADC_CH_I_IN, i_in_lpf);
 
-    float p_in = g_ctrl_diag.filt.v_in_v * g_ctrl_diag.filt.i_in_a;
+    /* I_IN 均值 = I_L_filt × generalized_duty
+     * 输入电流为脉冲型，单点采样无法得均值。功率外环只需稳态平均值。 */
+    float i_l_filt = g_ctrl_diag.filt.i_l_a;
+    float d_buck = ctrl_buckboost_get_generalized_duty(&g_buckboost);
+    float i_in_est = 0.0f;
+    if (algo_flt_finite(i_l_filt) && algo_flt_finite(d_buck)) {
+        float d = (d_buck < 0.0f) ? 0.0f : (d_buck > 1.0f) ? 1.0f : d_buck;
+        i_in_est = i_l_filt * d;
+    }
+    g_ctrl_diag.raw.i_in_a = i_in_est;
+    g_ctrl_diag.filt.i_in_a = i_in_est;
+
+    float p_in = g_ctrl_diag.filt.v_in_v * i_in_est;
     if (!algo_flt_finite(p_in)) {
         p_in = 0.0f;
     }
