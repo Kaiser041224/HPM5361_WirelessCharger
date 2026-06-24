@@ -401,10 +401,10 @@ int ctrl_buckboost_init(ctrl_buckboost_t* ctrl) {
     algo_pid_ctor(&ctrl->state.power_pid);
     algo_pid_cfg_t power_pid_cfg = {
         .mode = ALGO_PID_MODE_INCREMENTAL,
-        .kp = 0.05f,
-        .ki = 50.0f,
+        .kp = 0.025f,
+        .ki = 128.0f,
         .kd = 0.0f,
-        .sample_time_s = 1.0f / 5000.0f,
+        .sample_time_s = 1.0f / 25000.0f,
         .out_min = BUCKBOOST_POWER_PID_OUT_MIN,
         .out_max = BUCKBOOST_POWER_PID_OUT_MAX,
         .integral_min = BUCKBOOST_POWER_PID_OUT_MIN,
@@ -632,7 +632,7 @@ void ctrl_buckboost_update_voltage(
 }
 
 /* ============================================================================
- * 功率外环 update (5kHz)
+ * 功率外环 update (25kHz)
  * ============================================================================ */
 
 ATTR_RAMFUNC

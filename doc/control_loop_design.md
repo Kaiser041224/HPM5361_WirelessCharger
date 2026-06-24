@@ -52,7 +52,7 @@ AHB = 120MHz，clock_mot0 = 120MHz，clock_adc0/1 上游 120MHz。
 | ADC clock | 120MHz / 3 = 40MHz |
 | 单通道转换时间 | ≈ 1.025μs |
 | DMA | 使能，每实例独立缓冲区（48 uint32_t） |
-| 触发方式 | PWM CMP8 → TRGM → ADC PMT 触发输入 |
+| 触发方式 | PWM0 CMP8 / PWM1 CMP10 → TRGM → ADC PMT 触发输入 |
 
 每个 ADC 实例 PMT 队列 4 通道，其中位置 0 为 dummy（规避首次转换异常），有效通道 3 个。
 
@@ -62,7 +62,7 @@ AHB = 120MHz，clock_mot0 = 120MHz，clock_adc0/1 上游 120MHz。
 
 ```
 PWM0_CH8 (CMP8) ──TRGM──→ PTRGI0A (trig_ch=0) ──→ ADC0
-PWM1_CH8 (CMP8) ──TRGM──→ PTRGI1A (trig_ch=3) ──→ ADC1
+PWM1_CH10 (CMP10) ──TRGM──→ PTRGI1A (trig_ch=3) ──→ ADC1
 ```
 
 PTRGI 输入广播到 ADC0+ADC1，通过 `adc16_enable_pmt_queue` 隔离各自响应。
@@ -93,17 +93,17 @@ PTRGI 输入广播到 ADC0+ADC1，通过 `adc16_enable_pmt_queue` 隔离各自�
 | PWM1 pair 1 (同步整流) | Buck-Boost (可选) |
 | PWM0 pair 2 (半桥 A) | LCC 全桥 |
 | PWM0 pair 3 (半桥 B) | LCC 全桥 |
-| GPTMR0 | 外环定时触发（50kHz 电压环 + 功率环） |
+| GPTMR1 | 外环定时触发（50kHz 电压环 + 25kHz 功率环） |
 
 ### 2.6 中断资源分配
 
 | 中断 | 优先级 | 用途 |
 |------|--------|------|
 | ADC0 PMT (IRQ 58) | 1 | ADC0 DMA snapshot + raw cache |
-| ADC1 PMT (IRQ 59) | 1 | ADC1 DMA snapshot + raw cache |
-| PWM1 Reload | 1 | 电流内环 (200kHz) |
+| ADC1 PMT (IRQ 59) | 2 | ADC1 DMA snapshot + Buck-Boost 采样/电流环回调 |
+| PWM1 Reload | 1 | 可选调试 Reload IRQ；正式 Buck-Boost 控制路径不使用 |
 | PWM0 Reload | 2 | LCC 电流内环 (148kHz) |
-| GPTMR0 | 3 | 电压环 + 功率环 (50kHz) |
+| GPTMR1 | 3 | 电压环 (50kHz) + 功率环 (25kHz) |
 
 ### 2.7 PWM-ADC 触发链路详解
 
@@ -113,36 +113,38 @@ PTRGI 输入广播到 ADC0+ADC1，通过 `adc16_enable_pmt_queue` 隔离各自�
 board_init()         → 引脚配置（ADC 引脚设为模拟输入，PAD_CTL=0）
 hrpwm_init()         → PWM0/PWM1 配置（频率、死区、中心对齐），不启动
 app_adc_init()       → ADC0/ADC1 校准 + PMT 配置 + TRGM 路由
-hrpwm_start_all()    → PWM 启动，CMP8 开始产生触发信号
+hrpwm_start_all()    → PWM 启动，PWM0 CMP8 / PWM1 CMP10 开始产生触发信号
 ```
 
 ADC 校准在 PWM 未启动时进行，避免开关噪声影响精度。
 
-#### 2.7.2 CMP8 触发比较器
+#### 2.7.2 PWM 触发比较器
 
 ```c
-// drv_hrpwm.c: hrpwm_config_trigger_cmp_impl()
+// app_adc.c: app_adc_init()
+// PWM0: APP_ADC_PMT_TRIGGER_CMP_INDEX_PWM0 = 8
+// PWM1: APP_ADC_PMT_TRIGGER_CMP_INDEX_PWM1 = 10
 cmp_val = reload * position_ratio;  // position_ratio = 0.5
-pwm_config_cmp(base, 8, &cmp_cfg);  // CMP8
-pwm_config_output_channel(base, 8, &out_cfg);  // CH8 输出通道
+pwm_config_cmp(base, cmp_index, &cmp_cfg);
+pwm_config_output_channel(base, cmp_index, &out_cfg);
 ```
 
-- CMP8 在计数器值 = reload × 0.5 时匹配
+- 触发 CMP 在计数器值 = reload × 0.5 时匹配
 - 中心对齐模式下每个 PWM 周期产生两次匹配（递增 + 递减）
-- CMP8 匹配事件通过 CH8REF 输出到 TRGM
+- PWM0 通过 CH8REF 输出到 TRGM；PWM1 通过 CH10REF 输出到 TRGM
 
 #### 2.7.3 TRGM 路由
 
 ```c
 // app_adc.c: app_adc_init()
 intf_trgm_connect(INTF_TRGM_SRC_PWM0_CH8REF, INTF_TRGM_DST_ADC_PTRGI0A);
-intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH8REF, INTF_TRGM_DST_ADC_PTRGI1A);
+intf_trgm_connect(INTF_TRGM_SRC_PWM1_CH10REF, INTF_TRGM_DST_ADC_PTRGI1A);
 ```
 
 | TRGM 输入 | 来源 | TRGM 输出 | trig_ch | 目标 |
 |:---|:---|:---|:---|:---|
 | PWM0_CH8REF | PWM0 CMP8 | PTRGI0A | 0 | ADC0 + ADC1（共享） |
-| PWM1_CH8REF | PWM1 CMP8 | PTRGI1A | 3 | ADC0 + ADC1（共享） |
+| PWM1_CH10REF | PWM1 CMP10 | PTRGI1A | 3 | ADC0 + ADC1（共享） |
 
 #### 2.7.4 PMT 队列隔离
 
@@ -242,7 +244,7 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 
 ### 4.1 Buck-Boost 控制器 (`ctrl_buckboost`)
 
-对象 `ctrl_buckboost_t { params, state }` 封装四开关拓扑的控制。采用**双缓冲 + 分离 ISR** 多速率级联架构。
+对象 `ctrl_buckboost_t { params, state }` 封装四开关拓扑的控制。采用 **ADC1 PMT 回调 + GPTMR 分离 ISR + state 级联** 的多速率架构。
 
 | 项目 | 说明 |
 |------|------|
@@ -258,11 +260,11 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 
 | 环路 | ISR 触发源 | 频率 | 算法 | 输入 | 输出 |
 |------|-----------|------|------|------|------|
-| 电流内环 | PWM1 Reload | 200kHz | LPF + 增量式 PI | I_L (cache) | duty → `hrpwm_set_duty()` |
-| 电压外环 | GPTMR | 50kHz | LPF + 增量式 PI | V_LINK, V_IN | current_ref → `s_staging` |
-| 功率外环 | GPTMR | 50kHz | LPF + PI/P | V_IN×I_IN | power_limit → `s_staging` |
+| 电流内环 | ADC1 PMT callback | 200kHz 采样 / 100kHz PI | LPF + 增量式 PI | I_L, V_IN, V_LINK | duty → `hrpwm_set_duty()` |
+| 电压外环 | GPTMR1 CH0 | 50kHz | MA + 增量式 PI + 负载电流前馈 | V_LINK, I_L | `ctrl->state.current_ref` |
+| 功率外环 | GPTMR1 CH1 | 25kHz | 增量式 PI (`kp=0.025`, `ki=128`) | `V_IN(filtered) × I_IN(calc)` | signed `v_out_target_v` |
 
-**setpoint 传递：** 外环计算结果写入 `s_staging`，计算完毕后原子 swap 到 `s_active`。内环每周期原子读取 `s_active.current_ref`。
+**setpoint 传递：** 当前实现通过 `ctrl_buckboost_t.state` 级联传递控制目标：功率环更新 signed `v_out_target_v`，电压环更新 `current_ref`，电流环按分频周期读取 `current_ref` 并更新 PWM duty。
 
 ### 4.2 LCC 控制器 (`ctrl_lcc`)
 
@@ -283,7 +285,7 @@ INIT ──(自检通过)──→ IDLE ──(power_enable)──→ RUN
 | 线圈电流内环 | PWM0 Reload | 148kHz | LPF + 增量式 PI | 移相角 |
 | 频率跟踪 | GPTMR 或分频 | ~10kHz | PLL | 频率 |
 
-LCC 的电流内环同样使用双缓冲架构，通过独立的 `s_active_lcc` / `s_staging_lcc` 传递 setpoint。
+当前 `ctrl_lcc` 已定义参数、状态与接口，`ctrl_lcc.c` 仍为基础占位实现；后续若启用 LCC 多速率闭环，应独立定义 setpoint 传递和 ISR 边界，避免复用 Buck-Boost 的状态链路假设。
 
 ### 4.3 故障管理 (`ctrl_fault`)
 
@@ -325,45 +327,42 @@ LCC 的电流内环同样使用双缓冲架构，通过独立的 `s_active_lcc` 
 
 ## 6. 数据流
 
-### 6.1 多环路控制数据流（双缓冲 + 分离 ISR 架构）
+### 6.1 多环路控制数据流（ADC1 PMT 回调 + GPTMR 分离 ISR 架构）
 
 ```
-ADC1 PMT ISR (200kHz, priority 1)
-  → DMA snapshot + validate
-  → pmt_raw_cache[I_L, V_LINK, I_IN]           (仅 raw 缓存写入)
+ADC1 PMT callback (200kHz, priority 2)
+  → read/convert I_L, V_LINK
+  → I_L LPF + V_LINK fast LPF + sample_seq++
+  → 每 2 次采样执行电流环 PI
+  → 读取 ctrl_buckboost_t.state.current_ref → set_duty()
 
-PWM1 Reload ISR (200kHz, priority 1)
-  → read pmt_raw_cache[I_L]
-  → LPF 滤波 → 增量式 PI → set_duty()          (固定 ~180ns)
-  → 读 s_active.current_ref                     (atomic read)
+GPTMR1 CH0 ISR (50kHz, priority 3)              (独立定时器)
+  → 电压环: MA + PI + I_load 前馈 → current_ref
 
-GPTMR ISR (50kHz, priority 3)                   (独立定时器，与 PWM 相位同步)
-  → 电压环: LPF + PI → s_staging.current_ref
-  → 功率环: LPF + PI → s_staging.power_limit
-  → s_active = s_staging                        (atomic swap)
+GPTMR1 CH1 ISR (25kHz, priority 3)              (当前台架验证配置)
+  → 功率环: V_IN(filtered) × I_IN(calc) → 增量式 PI
+  → signed v_out_target_v → 电压环 → current_ref
 
 主循环 (~1kHz)
   → 状态机推进、故障检查、CAN 通信、遥测上报
 ```
 
-### 6.2 双缓冲 setpoint 传递
+### 6.2 `ctrl_buckboost_t.state` 级联 setpoint 传递
 
-外环通过双缓冲结构向内环传递设定值，消除 ISR 间的数据竞争：
+Buck-Boost 当前实现不再使用独立 `s_active/s_staging` 双缓冲；环路目标通过 `ctrl_buckboost_t.state` 逐级传递：
 
 ```c
 typedef struct {
-    float current_ref;      // 电流环设定值（电压环输出）
-    float voltage_limit;    // 电压限幅值
-    float power_limit;      // 功率限幅值
-} ctrl_setpoints_t;
-
-static volatile ctrl_setpoints_t s_active;   // 内环读取（atomic read）
-static ctrl_setpoints_t           s_staging; // 外环写入（低优先级 ISR 内）
+    float v_out_target_v;   // 功率环/CV 模式输出给电压环的 signed V_LINK 目标
+    volatile float current_ref; // 电压环输出给电流环的 signed I_L 目标
+    float power_pid_out;    // 功率环 PI 输出，CW 模式下写入 v_out_target_v
+} ctrl_buckboost_state_t;
 ```
 
-- 内环（PWM1 ISR）每周期原子读取 `s_active.current_ref`（单 word 读取，天然原子）
-- 外环（GPTMR ISR）计算完毕后整体写入 `s_active = s_staging`（3 个 word，短临界区）
-- 无需互斥锁：写端在低优先级 ISR 中，读端在高优先级 ISR 中，不存在同时写的情况
+- 功率环（GPTMR1 CH1, 25kHz）在 CW 模式下更新 `v_out_target_v`。
+- 电压环（GPTMR1 CH0, 50kHz）读取 `v_out_target_v`，更新 `current_ref`。
+- 电流环（ADC1 PMT callback 内分频执行）读取 `current_ref` 并更新 PWM duty。
+- `current_ref` 为单个 `float` 字段，当前工程将其声明为 `volatile`，避免编译器跨 ISR 缓存。
 
 ### 6.3 状态与故障数据流
 
@@ -385,56 +384,59 @@ ctrl_fault_check() (Control)
 
 | 优先级 | 中断源 | 频率 | 职责 | 耗时 |
 |--------|--------|------|------|------|
-| **1** (最高) | ADC0 PMT | 148kHz | DMA snapshot + raw cache (ADC0 通道) | ~137ns |
-| **1** | ADC1 PMT | 200kHz | DMA snapshot + raw cache (ADC1 通道) | ~137ns |
-| **1** | PWM1 Reload | 200kHz | **电流内环**：LPF + 增量式 PI → set_duty | ~180ns |
+| **1** | ADC0 PMT | 148kHz | DMA snapshot + raw cache (ADC0 通道) | ~137ns |
+| **1** | PWM1 Reload | 200kHz | 可选调试 Reload IRQ；正式控制路径不使用 | — |
+| **2** | ADC1 PMT | 200kHz | **Buck-Boost 采样 + 电流环回调**：I_L/V_LINK 更新，100kHz 分频 PI → set_duty | 运行时监控 |
 | **2** | PWM0 Reload | 148kHz | LCC 控制（如需要） | ~180ns |
-| **3** (最低) | GPTMR | 50kHz | **电压环 + 功率环**：计算 → 双缓冲写入 | ~800ns |
+| **3** (最高) | GPTMR1 | 50kHz / 25kHz | **电压环 / 功率环**：计算控制目标 | 当前配置已验证 |
+
+> HPM PLIC 优先级数字越大优先级越高；当前 `GPTMR1=3` 高于 `ADC1/PWM0=2` 和 `PWM1/ADC0=1`。
 
 ### 7.2 执行时序图
 
 ```
 PWM1 周期 N (5μs):
-  ┌─ ADC1 PMT ISR ─┐        ┌─ PWM1 Reload ISR ─┐
-  │ 137ns (priority1)│        │ 180ns (priority 1) │
-  └──────────────────┘        └────────────────────┘
+  ┌─ ADC1 PMT callback ────────────────────────┐
+  │ priority 2: 采样/滤波；每 2 周期执行一次 PI │
+  └────────────────────────────────────────────┘
   0μs     0.5μs              2.5μs    2.7μs       5μs
-  ↑ 触发                      ↑ 中心点             ↑ 下一周期
+  ↑ PWM1→TRGM→ADC1 PMT         ↑ 中心点             ↑ 下一周期
 
-GPTMR ISR (20μs 周期, priority 3):
-  ┌─ ADC1 ─┐┌─ GPTMR ──────────────────┐
-  │ 137ns   ││ 800ns (priority 3)       │
-  │(抢占等待)││ 电压环 + 功率环           │
-  └─────────┘└──────────────────────────┘
-  GPTMR 触发  ADC1 完成后立即执行         执行完毕
+GPTMR1 外环 ISR (CH0 20μs / CH1 40μs, priority 3):
+  ┌─ GPTMR1 ───────────────────────────┐
+  │ 已验证配置 (priority 3)             │
+  │ 电压环或功率环                      │
+  └────────────────────────────────────┘
+  GPTMR 触发后按 PLIC 优先级执行          执行完毕
 ```
 
 ### 7.3 关键设计决策
 
-**为什么电流环和 ADC 使用同一优先级？**
+**当前 ADC / PWM / GPTMR 优先级配置**
 
-- 同优先级中断不互相抢占（PLIC 规则），保证 ADC ISR 不会打断电流环计算
-- 同优先级按 IRQ 号排队：ADC (IRQ 58/59) 先于 PWM1 执行
-- 最坏情况：ADC0 + ADC1 + PWM1 串行 = 137 + 137 + 180 = 454ns << 5μs 周期
+- PLIC 数字越大优先级越高。
+- ADC1 PMT 使用 priority 2，高于 PWM1 priority 1，用于优先执行 Buck-Boost 采样、`V_LINK/I_L` 滤波与分频电流环。
+- GPTMR1 使用 priority 3，当前 50kHz 电压环 + 25kHz 功率环配置已在当前台架验证可用。
+- 若后续修改环路频率、ISR 内容或优先级，需要重新验证 `g_isr_cycles_max*` 与 ADC miss 计数。
 
-**为什么外环使用更低优先级？**
+**当前外环优先级配置**
 
-- 外环 ISR (GPTMR, priority 3) 执行期间被内环 (PWM1, priority 1) 抢占是安全的
-- 被抢占一次仅增加 ~180ns 延迟，20μs 周期内最多被抢占 4 次 = 最坏 800 + 720 = 1,520ns << 20μs
-- 内环永远不会被外环抢占，保证固定 180ns 执行时间
+- 当前驱动配置为 `GPTMR1 priority 3`，高于 `ADC1/PWM0 priority 2` 和 `PWM1/ADC0 priority 1`。
+- 该配置下，50kHz 电压环与 25kHz 功率环参数已完成当前台架验证，可正常使用。
+- 若后续追求更严格的电流内环确定性，应重新评估 GPTMR / ADC / PWM 的优先级分配和 worst-case jitter。
 
 **为什么不把外环放在快 ISR 内用软件分频？**
 
-- 软件分频会导致快 ISR 出现 5x 执行时间 jitter（180ns → 880ns）
-- 分离 ISR 保证快 ISR 始终固定 180ns，完全确定性
-- 外环延迟由 GPTMR jitter（~50-200ns）决定，对 50kHz 外环来说仅 1% 额外延迟，可忽略
+- 将电压环/功率环塞入 ADC1 PMT callback 会放大 200kHz 快路径 jitter，并增加 ADC PMT miss 风险。
+- 当前仅在 ADC1 PMT callback 内保留采样、快速滤波和 100kHz 分频电流 PI；50kHz/25kHz 外环由 GPTMR1 独立触发。
+- 外环延迟由 GPTMR jitter 与 PLIC 调度决定，当前 50kHz 电压环 + 25kHz 功率环配置已在当前台架验证可用。
 
 ### 7.4 主循环调度
 
 | 层级 | 触发源 | 典型频率 | 典型任务 |
 |------|--------|----------|---------|
-| Fast | PWM1 Reload IRQ | 200kHz | 电流环 step (LPF + PI) |
-| Medium | GPTMR IRQ | 50kHz | 电压环 + 功率环 step |
+| Fast | ADC1 PMT callback | 200kHz 采样 / 100kHz PI | Buck-Boost 采样、滤波、电流环 step |
+| Medium | GPTMR IRQ | 50kHz / 25kHz | 电压环 / 功率环 step |
 | Slow | `app_run_once()` | ~1kHz | 状态机推进、故障检查 |
 | Slowest | 分频 | ~10Hz | CAN 通信、遥测上报 |
 
@@ -452,28 +454,29 @@ app_comm_tick()       // CAN 帧处理 + 遥测
 
 | 环路 | 频率 | 周期 | ISR 耗时 | CPU 占用 |
 |------|------|------|---------|---------|
-| 电流内环 (PWM1 ISR) | 200kHz | 5μs | 180ns | 3.6% |
-| ADC 采样 (ADC0+ADC1 ISR) | 200+148kHz | — | 274ns (合计) | 5.5% |
-| 电压环 + 功率环 (GPTMR ISR) | 50kHz | 20μs | 800ns | 4.0% |
-| **总计** | | | | **13.1%** |
+| Buck-Boost ADC1 PMT callback | 200kHz 采样 / 100kHz PI | 5μs / 10μs | 运行时监控 | 运行时监控 |
+| LCC ADC0 PMT callback | 148kHz | 6.76μs | 运行时监控 | 运行时监控 |
+| 电压环 / 功率环 (GPTMR ISR) | 50kHz / 25kHz | 20μs / 40μs | 当前配置已验证 | 运行时监控 |
+| **总计** | | | | 以 `g_isr_cycles_max*` 实测为准 |
 
-### 8.2 电流内环 (200kHz)
+### 8.2 Buck-Boost 电流内环 (200kHz 采样 / 100kHz PI)
 
 ```
-PWM1 Reload ISR: 500ns (PLIC) + 180ns (计算) + 200ns (返回) = 880ns
-下一个触发: 5,000ns
-余量: 4,120ns (82.4%)
+ADC1 PMT callback: 200kHz 采样 I_L/V_LINK
+CTRL_FREQ_DIVIDER = 2: 每 2 次 PMT 回调执行一次电流 PI 与 PWM duty 更新
+周期: 5,000ns 采样周期 / 10,000ns 控制周期
+裕量: 以 `g_isr_cycles_max` 实测值为准
 ```
 
-逐周期执行，不跳过任何周期。LPF + 增量式 PI 仅 ~65 条 RISC-V 指令。
+采样逐周期执行，电流 PI 分频执行。运行时应关注 `g_isr_cycles_max` 与 ADC1 PMT miss 计数。
 
 ### 8.3 电压环 (50kHz)
 
 ```
-GPTMR ISR: 500ns (PLIC) + 400ns (电压环) + 400ns (功率环) + 200ns (返回) = 1,500ns
-最坏情况（被 PWM1 抢占 4 次）: 1,500 + 4×180 = 2,220ns
-下一个触发: 20,000ns
-余量: 17,780ns (88.9%)
+GPTMR CH0 电压环: 50kHz / 20,000ns 周期
+GPTMR CH1 功率环: 25kHz / 40,000ns 周期
+当前 25kHz 功率环参数 `kp=0.025`, `ki=128`, `kd=0` 已完成当前台架验证，可正常使用。
+运行时仍建议通过 `g_isr_cycles_max_voltage` / `g_isr_cycles_max_power` 监控 ISR 裕量。
 ```
 
 ### 8.4 PWM0 (148kHz) 分析
@@ -490,9 +493,9 @@ T_pwm ≈ 6.76μs。ADC0 PMT 采 4 路（含 dummy），有效 3 路，总转换
 
 | 环路 | 滤波器 | 控制器 | 理由 |
 |------|--------|--------|------|
-| 电流环 (200kHz) | 1 阶 LPF (~20ns) | 增量式 PI (~100ns) | 最低延迟，无积分器 windup |
+| 电流环 (200kHz 采样 / 100kHz PI) | 1 阶 LPF | 增量式 PI | 降低 ADC1 PMT 回调负载，保留电流反馈实时性 |
 | 电压环 (50kHz) | MA (N=4, ~35ns) | 增量式 PI | 宽裕时间预算，MA 够用 |
-| 功率环 (50kHz) | LPF | PI 或 P | 功率环带宽低，简单控制器即可 |
+| 功率环 (25kHz) | V_IN MA + I_IN(calc) | 增量式 PI (`kp=0.025`, `ki=128`, `kd=0`) | 当前台架验证配置 |
 
 ---
 

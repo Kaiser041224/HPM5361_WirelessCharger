@@ -19,7 +19,7 @@
 #define APP_GPTMR_CH_BASE       (APP_GPTMR_INSTANCE * 4U)
 
 #define APP_GPTMR_VOLTAGE_FREQ  50000U
-#define APP_GPTMR_POWER_FREQ    5000U
+#define APP_GPTMR_POWER_FREQ    25000U
 
 extern void hpm_gptmr_driver_register(void);
 
@@ -43,7 +43,7 @@ void app_gptmr_init(void)
     };
     (void)intf_gptmr_init(app_ch_to_intf(APP_GPTMR_CH_VOLTAGE), &cfg_voltage);
 
-    /* CH1: 功率外环 20kHz */
+    /* CH1: 功率外环 25kHz */
     intf_gptmr_cfg_t cfg_power = {
         .mode         = INTF_GPTMR_MODE_TIMER,
         .frequency_hz = APP_GPTMR_POWER_FREQ,

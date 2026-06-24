@@ -7,7 +7,7 @@
  *
  * 通道分配 (GPTMR1):
  *   CH0 — 电压外环 50kHz
- *   CH1 — 功率外环 5kHz
+ *   CH1 — 功率外环 25kHz
  *
  * Copyright (c) 2026 Alliance HardWare Team
  * SPDX-License-Identifier: BSD-3-Clause

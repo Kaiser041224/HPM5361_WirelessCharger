@@ -137,7 +137,7 @@ static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] =
     [ADC_CH_I_IN] =
         {
                        .type = APP_ANALOG_SIGNAL_FILTER_LPF,
-                       .cfg.lpf = {.cutoff_hz = 20.0f, .sample_rate_hz = 5000.0f},
+                       .cfg.lpf = {.cutoff_hz = 20.0f, .sample_rate_hz = 25000.0f},
                        },
     [ADC_CH_I_L] =
         {

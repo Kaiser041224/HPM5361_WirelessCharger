@@ -39,7 +39,7 @@ typedef struct {
     struct {
         float i_l_a;
         float v_link_v;
-        float i_in_a;
+        float i_in_a;        /* ADC 实测 I_IN 换算物理值 */
         float v_in_v;
         float i_coil_a;
         float i_lf_a;
@@ -54,7 +54,7 @@ typedef struct {
         float i_l_a;
         float v_link_v;      /* MA4 @50kHz: 电压外环反馈用 (稳态平滑) */
         float v_link_fast_v; /* 1阶LPF @40kHz: 电流内环前馈用 (动态快, 勿用于反馈) */
-        float i_in_a;
+        float i_in_a;        /* ADC 实测 I_IN 滤波值，仅诊断，不作为当前功率环控制输入 */
         float v_in_v;
         float i_coil_a;
         float i_lf_a;
@@ -66,8 +66,9 @@ typedef struct {
         float lcc_b;
     } duty;
     struct {
-        float i_load_est_a;
-        float p_in_w;
+        float i_load_est_a; /* VLINK 侧负载电流估算，供电压环前馈 */
+        float i_in_calc_a;  /* I_L × Dmax × g 估算输入电流，供功率环控制 */
+        float p_in_w;       /* V_IN(filtered) × i_in_calc_a */
         float p_target_w;
         float power_pid_out;
     } ff;

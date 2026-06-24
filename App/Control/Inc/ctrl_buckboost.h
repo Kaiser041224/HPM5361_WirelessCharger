@@ -140,7 +140,7 @@ void ctrl_buckboost_enter_cv_mode(ctrl_buckboost_t *ctrl, float target_v);
 void ctrl_buckboost_enter_cw_mode(ctrl_buckboost_t *ctrl, float target_w);
 
 /*
- * 功率外环 update (5kHz)
+ * 功率外环 update (25kHz)
  *   增量式 PI(p_target, p_in) → power_pid_out
  *   双向: PID 输出作为 signed v_out_target_v，再由电压环产生 signed current_ref
  */

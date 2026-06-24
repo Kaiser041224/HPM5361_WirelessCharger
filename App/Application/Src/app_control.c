@@ -44,16 +44,23 @@ volatile uint32_t g_isr_cycles_max_power = 0;
 
 static ctrl_buckboost_t g_buckboost;
 static ctrl_lcc_t g_lcc;
+static volatile uint32_t s_buckboost_vlink_sample_seq;
+static uint32_t s_buckboost_vlink_consumed_seq;
+
+static inline void buckboost_vlink_sample_reset(void) {
+    s_buckboost_vlink_sample_seq = 0U;
+    s_buckboost_vlink_consumed_seq = 0U;
+}
 
 /* ============================================================================
- * ISR 回调 — Buck-Boost 电流内环 (200kHz, ADC1 PMT 完成回调)
+ * ISR 回调 — Buck-Boost 采样/电流内环 (200kHz ADC1 PMT, 100kHz 电流 PI)
  *
- * ADC1 由 PWM1 CMP8 通过 TRGM 触发，采样完成后立即执行：
- *   读 raw → float 换算 → LPF 滤波 → 控制器 step → 更新占空比
+ * ADC1 由 PWM1 CMP10 通过 TRGM 触发，采样完成后立即执行：
+ *   读 raw → float 换算 → LPF 滤波；每 CTRL_FREQ_DIVIDER 次执行控制器 step
  * ============================================================================ */
 
 /* ISR 函数放入 ILM (指令 RAM)，消除 flash wait state 和 cache miss，
- * 保证 200kHz 电流内环的确定性执行时间 (~45ns)。 */
+ * 保证 ADC1 PMT 快路径的确定性；最大耗时通过 g_isr_cycles_max 观测。 */
 
 ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
@@ -79,7 +86,9 @@ static void buckboost_current_loop_isr(void) {
     g_ctrl_diag.raw_adc.v_link = raw_v_link;
     float phys_v_link;
     app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
+    g_ctrl_diag.raw.v_link_v = phys_v_link;
     g_ctrl_diag.filt.v_link_fast_v = app_analog_signal_lpf_step_fast(ADC_CH_V_LINK, phys_v_link);
+    s_buckboost_vlink_sample_seq++;
 
     /* 控制频率分频: 200kHz 采样, 100kHz PI 控制 */
     static uint8_t s_ctrl_div = 0;
@@ -137,23 +146,28 @@ static void buckboost_voltage_loop_isr(void) {
     uint32_t t0 = irq_prof_read_cycle();
     uint32_t elapsed;
 
-    uint16_t raw_v_link;
-    if (app_adc_get_pmt_raw(ADC_CH_V_LINK, &raw_v_link) != 0) {
+    /* V_LINK 采样已在 200kHz 电流环中完成；电压环只对 fast 值做 MA 平滑。
+     * sample_seq 同时保留启动阶段 PMT cache 未就绪时跳过外环的行为，并避免
+     * ADC/PMT 停滞后继续消费同一份旧样本。 */
+    uint32_t vlink_sample_seq = s_buckboost_vlink_sample_seq;
+    if (vlink_sample_seq == 0U || vlink_sample_seq == s_buckboost_vlink_consumed_seq) {
         goto exit;
     }
-    g_ctrl_diag.raw_adc.v_link = raw_v_link;
+    s_buckboost_vlink_consumed_seq = vlink_sample_seq;
 
-    float phys_v_link;
-    app_analog_signal_convert_raw(ADC_CH_V_LINK, raw_v_link, &phys_v_link);
-    g_ctrl_diag.raw.v_link_v = phys_v_link;
-    g_ctrl_diag.filt.v_link_v = app_analog_signal_ma_step(ADC_CH_V_LINK, g_ctrl_diag.filt.v_link_fast_v);
+    float v_link_fb = app_analog_signal_ma_step(ADC_CH_V_LINK, g_ctrl_diag.filt.v_link_fast_v);
+    if (!algo_flt_finite(v_link_fb)) {
+        goto exit;
+    }
+    g_ctrl_diag.filt.v_link_v = v_link_fb;
 
     /* 负载电流前馈: I_load = I_L × Dmax × (1 - g)
      * 基于四开关 Buck-Boost 拓扑平均电流关系，适用于 Buck/Boost/Buck-Boost 全工况。
      * g ∈ [0, 1]: Dmax×(1-g) 为 VLINK 侧导通时间占比。 */
     float i_l = g_ctrl_diag.filt.i_l_a;
-    float g = ctrl_buckboost_get_generalized_duty(&g_buckboost);
-    float d_max = ctrl_buckboost_get_duty_max(&g_buckboost);
+    ctrl_buckboost_t* buckboost = &g_buckboost;
+    float g = buckboost->state.generalized_duty;
+    float d_max = buckboost->params.duty_max;
     float i_load_ff = 0.0f;
     if (algo_flt_finite(i_l) && algo_flt_finite(g) && algo_flt_finite(d_max)) {
         float gc = (g < 0.0f) ? 0.0f : (g > 1.0f) ? 1.0f : g;
@@ -162,7 +176,7 @@ static void buckboost_voltage_loop_isr(void) {
     g_ctrl_diag.ff.i_load_est_a = i_load_ff;
 
     /* 电压外环 + 输出电流环 (50kHz): CV/CC 竞争 → current_ref */
-    ctrl_buckboost_update_voltage(&g_buckboost, g_ctrl_diag.filt.v_link_v, i_load_ff, i_load_ff);
+    ctrl_buckboost_update_voltage(buckboost, v_link_fb, i_load_ff, i_load_ff);
 
 exit:
     ;
@@ -190,11 +204,21 @@ static void buckboost_power_loop_isr(void) {
     app_analog_signal_convert_raw(ADC_CH_I_IN, raw_i_in, &phys_i_in);
     g_ctrl_diag.raw.v_in_v = phys_v_in;
     g_ctrl_diag.raw.i_in_a = phys_i_in;
+
     g_ctrl_diag.filt.v_in_v = app_analog_signal_ma_step(ADC_CH_V_IN, phys_v_in);
     float i_in_lpf = app_analog_signal_lpf_step_fast(ADC_CH_I_IN, phys_i_in);
     g_ctrl_diag.filt.i_in_a = app_analog_signal_ma_step(ADC_CH_I_IN, i_in_lpf);
 
-    float p_in = g_ctrl_diag.filt.v_in_v * g_ctrl_diag.filt.i_in_a;
+    float i_l = g_ctrl_diag.filt.i_l_a;
+    float g = g_buckboost.state.generalized_duty;
+    float d_max = g_buckboost.params.duty_max;
+    float i_in_calc = 0.0f;
+    if (algo_flt_finite(i_l) && algo_flt_finite(g) && algo_flt_finite(d_max)) {
+        i_in_calc = i_l * d_max * g;
+    }
+    g_ctrl_diag.ff.i_in_calc_a = i_in_calc;
+
+    float p_in = g_ctrl_diag.filt.v_in_v * i_in_calc;
     if (!algo_flt_finite(p_in)) {
         p_in = 0.0f;
     }
@@ -202,8 +226,8 @@ static void buckboost_power_loop_isr(void) {
     ctrl_buckboost_update_power(&g_buckboost, p_in);
 
     g_ctrl_diag.ff.p_in_w = p_in;
-    g_ctrl_diag.ff.p_target_w = ctrl_buckboost_get_ptarget(&g_buckboost);
-    g_ctrl_diag.ff.power_pid_out = ctrl_buckboost_get_power_pid_out(&g_buckboost);
+    g_ctrl_diag.ff.p_target_w = g_buckboost.state.p_target_w;
+    g_ctrl_diag.ff.power_pid_out = g_buckboost.state.power_pid_out;
 
 exit:
     ;
@@ -249,6 +273,8 @@ static void configure_controllers_for_mode(void) {
  * ============================================================================ */
 
 void app_control_init(void) {
+    buckboost_vlink_sample_reset();
+
     /* 1. 控制器初始化 (不涉及硬件) */
     ctrl_fault_init(NULL);
     ctrl_buckboost_init(&g_buckboost);
@@ -360,6 +386,7 @@ int app_control_power_enable(void) {
 
 void app_control_power_disable(void) {
     app_gptmr_stop_all();
+    buckboost_vlink_sample_reset();
 
     ctrl_buckboost_disable(&g_buckboost);
     ctrl_lcc_disable(&g_lcc);
@@ -369,6 +396,7 @@ void app_control_power_disable(void) {
 
 void app_control_emergency(void) {
     app_gptmr_stop_all();
+    buckboost_vlink_sample_reset();
 
     app_hrpwm_emergency_stop();
     ctrl_buckboost_emergency_stop(&g_buckboost);
@@ -386,6 +414,7 @@ uint32_t app_control_get_faults(void) { return ctrl_fault_get_active(); }
 int app_control_clear_faults(void) {
     int ret = ctrl_fault_clear_all();
     if (ret == 0) {
+        buckboost_vlink_sample_reset();
         s_state = SYS_INIT;
     }
     return ret;
