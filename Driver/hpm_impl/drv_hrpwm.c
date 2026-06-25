@@ -9,6 +9,7 @@
 
 #include "board.h"
 #include "hpm_clock_drv.h"
+#include "hpm_common.h"
 #include "hpm_interrupt.h"
 #include "hpm_pwm_drv.h"
 #include "hpm_soc.h"
@@ -19,6 +20,10 @@
 #include <assert.h>
 #include <math.h>
 #include <stddef.h>
+
+#ifndef ATTR_RAMFUNC
+#define ATTR_RAMFUNC __attribute__((section(".fast")))
+#endif
 
 /* HRPWM pins configured in pinmux.c:
  * PA24 -> PWM0_P_0, PA25 -> PWM0_P_1
@@ -108,7 +113,7 @@ typedef struct {
     hrpwm_phase_limit_t phase_limit;
 } hrpwm_instance_state_t;
 
-static hrpwm_instance_state_t hrpwm_instances[HRPWM_INSTANCE_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS static hrpwm_instance_state_t hrpwm_instances[HRPWM_INSTANCE_COUNT];
 
 typedef struct {
     uint32_t cmp_begin;
@@ -142,7 +147,8 @@ static const hrpwm_channel_map_t hrpwm_channel_maps[] = {
      },
 };
 
-static uint32_t hrpwm_get_full_reload(uint8_t inst) {
+ATTR_RAMFUNC
+static inline uint32_t hrpwm_get_full_reload(uint8_t inst) {
 #if HRPWM_USE_EXTENDED_COUNTER
     return ((uint32_t)hrpwm_instances[inst].ex_reload << 24U) | hrpwm_instances[inst].reload;
 #else
@@ -168,7 +174,8 @@ static void hrpwm_init_instances(void) {
     hrpwm_instances[1].phase_limit.max_duty_target = 1.0f;
 }
 
-static PWM_Type* hrpwm_get_base(uint8_t inst) {
+ATTR_RAMFUNC
+static inline PWM_Type* hrpwm_get_base(uint8_t inst) {
     return (inst < HRPWM_INSTANCE_COUNT) ? hrpwm_instances[inst].base : NULL;
 }
 
@@ -1165,7 +1172,7 @@ static int hrpwm_config_phase_limit(const intf_hrpwm_phase_limit_t* limit) {
 }
 
 static int hrpwm_config_trigger_cmp_impl(uint8_t inst, uint8_t cmp_index, float position_ratio) {
-    if (position_ratio < 0.0f || position_ratio > 1.0f)
+    if (position_ratio < 0.0f || position_ratio > 1.0f || cmp_index >= PWM_SOC_CMP_MAX_COUNT)
         return -1;
 
     PWM_Type* base = hrpwm_get_base(inst);
@@ -1179,7 +1186,7 @@ static int hrpwm_config_trigger_cmp_impl(uint8_t inst, uint8_t cmp_index, float 
     memset(&cmp_cfg, 0, sizeof(cmp_cfg));
     cmp_cfg.enable_ex_cmp = false;
     cmp_cfg.mode = pwm_cmp_mode_output_compare;
-    cmp_cfg.update_trigger = pwm_shadow_register_update_on_shlk;
+    cmp_cfg.update_trigger = pwm_shadow_register_update_on_modify;
     cmp_cfg.cmp = cmp_val;
     pwm_config_cmp(base, cmp_index, &cmp_cfg);
 
@@ -1193,12 +1200,49 @@ static int hrpwm_config_trigger_cmp_impl(uint8_t inst, uint8_t cmp_index, float 
     return 0;
 }
 
+ATTR_RAMFUNC
+static int hrpwm_set_trigger_cmp_position_impl(uint8_t inst, uint8_t cmp_index, float position_ratio) {
+    if (position_ratio < 0.0f || position_ratio > 1.0f || cmp_index >= PWM_SOC_CMP_MAX_COUNT) {
+        return -1;
+    }
+
+    PWM_Type* base = hrpwm_get_base(inst);
+    if (base == NULL) {
+        return -1;
+    }
+
+    uint32_t reload = hrpwm_get_full_reload(inst);
+    uint32_t cmp_val = (uint32_t)((float)reload * position_ratio);
+
+    /*
+     * Direct write to CMP active register — no shadow lock protocol.
+     *
+     * The trigger CMP is configured with update_trigger=on_modify during
+     * hrpwm_config_trigger_cmp_impl, so writes take effect immediately
+     * without an explicit SHLK event.  Bypassing the shadow-register
+     * UNLK/SHLK handshake turns this into a single store, critical for
+     * the 148 kHz ADC0 ISR hot path.
+     */
+    base->CMP[cmp_index] = PWM_CMP_CMP_SET(cmp_val & 0xFFFFFFu);
+    return 0;
+}
+
 static int hrpwm_config_trigger_cmp_pwm0(uint8_t cmp_index, float position_ratio) {
     return hrpwm_config_trigger_cmp_impl(0, cmp_index, position_ratio);
 }
 
 static int hrpwm_config_trigger_cmp_pwm1(uint8_t cmp_index, float position_ratio) {
     return hrpwm_config_trigger_cmp_impl(1, cmp_index, position_ratio);
+}
+
+ATTR_RAMFUNC
+static int hrpwm_set_trigger_cmp_position_pwm0(uint8_t cmp_index, float position_ratio) {
+    return hrpwm_set_trigger_cmp_position_impl(0, cmp_index, position_ratio);
+}
+
+ATTR_RAMFUNC
+static int hrpwm_set_trigger_cmp_position_pwm1(uint8_t cmp_index, float position_ratio) {
+    return hrpwm_set_trigger_cmp_position_impl(1, cmp_index, position_ratio);
 }
 
 static const intf_hrpwm_t hrpwm_ops_pwm0 = {
@@ -1221,6 +1265,7 @@ static const intf_hrpwm_t hrpwm_ops_pwm0 = {
     .set_phase = hrpwm_set_phase,
     .config_phase_limit = hrpwm_config_phase_limit,
     .config_trigger_cmp = hrpwm_config_trigger_cmp_pwm0,
+    .set_trigger_cmp_position = hrpwm_set_trigger_cmp_position_pwm0,
 };
 
 static const intf_hrpwm_t hrpwm_ops_pwm1 = {
@@ -1243,6 +1288,7 @@ static const intf_hrpwm_t hrpwm_ops_pwm1 = {
     .set_phase = hrpwm_set_phase,
     .config_phase_limit = hrpwm_config_phase_limit,
     .config_trigger_cmp = hrpwm_config_trigger_cmp_pwm1,
+    .set_trigger_cmp_position = hrpwm_set_trigger_cmp_position_pwm1,
 };
 
 void hpm_hrpwm_driver_register(void) {

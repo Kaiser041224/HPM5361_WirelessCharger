@@ -35,17 +35,17 @@ volatile uint32_t g_isr_cycles_max = 0;
 volatile uint32_t g_isr_cycles_max_voltage = 0;
 volatile uint32_t g_isr_cycles_max_power = 0;
 
-#define CTRL_FREQ_DIVIDER                 2
-#define APP_CONTROL_CW_TARGET_DEFAULT_W   15.0f
+#define CTRL_FREQ_DIVIDER               2
+#define APP_CONTROL_CW_TARGET_DEFAULT_W 15.0f
 
 /* ============================================================================
  * 控制器实例
  * ============================================================================ */
 
-static ctrl_buckboost_t g_buckboost;
-static ctrl_lcc_t g_lcc;
-static volatile uint32_t s_buckboost_vlink_sample_seq;
-static uint32_t s_buckboost_vlink_consumed_seq;
+ATTR_PLACE_AT_FAST_RAM_BSS static ctrl_buckboost_t g_buckboost;
+ATTR_PLACE_AT_FAST_RAM_BSS static ctrl_lcc_t g_lcc;
+ATTR_PLACE_AT_FAST_RAM_BSS static volatile uint32_t s_buckboost_vlink_sample_seq;
+ATTR_PLACE_AT_FAST_RAM_BSS static uint32_t s_buckboost_vlink_consumed_seq;
 
 static inline void buckboost_vlink_sample_reset(void) {
     s_buckboost_vlink_sample_seq = 0U;
@@ -91,7 +91,7 @@ static void buckboost_current_loop_isr(void) {
     s_buckboost_vlink_sample_seq++;
 
     /* 控制频率分频: 200kHz 采样, 100kHz PI 控制 */
-    static uint8_t s_ctrl_div = 0;
+    ATTR_PLACE_AT_FAST_RAM_BSS static uint8_t s_ctrl_div = 0;
     if (++s_ctrl_div >= CTRL_FREQ_DIVIDER) {
         s_ctrl_div = 0;
         float v_in = g_ctrl_diag.filt.v_in_v;
@@ -106,8 +106,7 @@ static void buckboost_current_loop_isr(void) {
             g_ctrl_diag.duty.buckboost_b);
     }
 
-exit:
-    ;
+exit:;
     elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max) {
         g_isr_cycles_max = elapsed;
@@ -129,12 +128,13 @@ static void lcc_current_loop_isr(void) {
     float phys_i_coil, phys_i_lf;
     app_analog_signal_convert_raw(ADC_CH_I_COIL, raw_i_coil, &phys_i_coil);
     app_analog_signal_convert_raw(ADC_CH_I_LF, raw_i_lf, &phys_i_lf);
+
     g_ctrl_diag.raw.i_coil_a = phys_i_coil;
     g_ctrl_diag.raw.i_lf_a = phys_i_lf;
-    g_ctrl_diag.filt.i_coil_a = phys_i_coil;
-    g_ctrl_diag.filt.i_lf_a = phys_i_lf;
+    g_ctrl_diag.filt.i_coil_a = app_analog_signal_lpf_step_fast(ADC_CH_I_COIL, phys_i_coil);
+    g_ctrl_diag.filt.i_lf_a = app_analog_signal_lpf_step_fast(ADC_CH_I_LF, phys_i_lf);
 
-    /* TODO: 控制器 step */
+    ctrl_lcc_step(&g_lcc, phys_i_coil, phys_i_lf);
 }
 
 /* ============================================================================
@@ -178,8 +178,7 @@ static void buckboost_voltage_loop_isr(void) {
     /* 电压外环 + 输出电流环 (50kHz): CV/CC 竞争 → current_ref */
     ctrl_buckboost_update_voltage(buckboost, v_link_fb, i_load_ff, i_load_ff);
 
-exit:
-    ;
+exit:;
     elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max_voltage) {
         g_isr_cycles_max_voltage = elapsed;
@@ -229,8 +228,7 @@ static void buckboost_power_loop_isr(void) {
     g_ctrl_diag.ff.p_target_w = g_buckboost.state.p_target_w;
     g_ctrl_diag.ff.power_pid_out = g_buckboost.state.power_pid_out;
 
-exit:
-    ;
+exit:;
     elapsed = irq_prof_read_cycle() - t0;
     if (elapsed > g_isr_cycles_max_power) {
         g_isr_cycles_max_power = elapsed;

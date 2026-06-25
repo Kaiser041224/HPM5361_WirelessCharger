@@ -104,6 +104,7 @@ typedef struct {
         int (*set_phase)(const intf_hrpwm_phase_cfg_t *cfg);
         int (*config_phase_limit)(const intf_hrpwm_phase_limit_t *limit);
         int (*config_trigger_cmp)(uint8_t cmp_index, float position_ratio);
+        int (*set_trigger_cmp_position)(uint8_t cmp_index, float position_ratio);
     };
 } intf_hrpwm_t;
 
@@ -133,6 +134,7 @@ int intf_hrpwm_config_phase_limit(intf_hrpwm_inst_t inst, const intf_hrpwm_phase
 
 /* PWM 触发信号配置 (用于 ADC 同步等) */
 int intf_hrpwm_config_trigger_cmp(intf_hrpwm_inst_t inst, uint8_t cmp_index, float position_ratio);
+int intf_hrpwm_set_trigger_cmp_position(intf_hrpwm_inst_t inst, uint8_t cmp_index, float position_ratio);
 
 #ifdef __cplusplus
 }

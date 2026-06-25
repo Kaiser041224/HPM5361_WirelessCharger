@@ -9,6 +9,7 @@
 
 #include "hpm_adc16_drv.h"
 #include "hpm_clock_drv.h"
+#include "hpm_common.h"
 #include "hpm_interrupt.h"
 #include "hpm_misc.h"
 #include "hpm_soc_irq.h"
@@ -88,8 +89,8 @@ typedef struct {
     } wdog;
 } adc_inst_t;
 
-static adc_inst_t adc_instances[INTF_ADC_INSTANCE_COUNT];
-static volatile intf_adc_diag_snapshot_t adc_diag;
+ATTR_PLACE_AT_FAST_RAM_BSS static adc_inst_t adc_instances[INTF_ADC_INSTANCE_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS static volatile intf_adc_diag_snapshot_t adc_diag;
 
 /* ============================================================================
  * Hardware Mapping Helpers

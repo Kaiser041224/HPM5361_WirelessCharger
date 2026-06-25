@@ -19,6 +19,7 @@
 
 #include "hpm_gptmr_drv.h"
 #include "hpm_clock_drv.h"
+#include "hpm_common.h"
 #include "hpm_interrupt.h"
 #include "hpm_soc.h"
 #include "hpm_soc_irq.h"
@@ -60,7 +61,7 @@ static const uint32_t gptmr_irq_nums[GPTMR_INSTANCE_COUNT] = {
     IRQn_GPTMR3,
 };
 
-static gptmr_ch_state_t gptmr_state[GPTMR_TOTAL_CHANNELS];
+ATTR_PLACE_AT_FAST_RAM_BSS static gptmr_ch_state_t gptmr_state[GPTMR_TOTAL_CHANNELS];
 
 static bool gptmr_ch_is_valid(intf_gptmr_ch_t ch)
 {

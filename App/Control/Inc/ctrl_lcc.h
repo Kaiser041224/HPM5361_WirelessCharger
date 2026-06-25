@@ -1,7 +1,7 @@
 /*
  * ctrl_lcc.h — 全桥 LCC 谐振控制器
  *
- * 面向 PWM0 pair 2/3 的全桥 LCC 拓扑，封装：
+ * 面向 PWM0 pair 0/1 的全桥 LCC 拓扑，封装：
  *   - 频率控制 (调频调压)
  *   - 移相控制 (调功)
  *   - PLL 谐振频率跟踪
@@ -18,9 +18,26 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define CTRL_LCC_PHASE_SAMPLE_COUNT (4U)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+typedef enum {
+    CTRL_LCC_PHASE_SAMPLE_0_DEG   = 0,
+    CTRL_LCC_PHASE_SAMPLE_90_DEG  = 1,
+    CTRL_LCC_PHASE_SAMPLE_180_DEG = 2,
+    CTRL_LCC_PHASE_SAMPLE_270_DEG = 3,
+} ctrl_lcc_phase_sample_t;
+
+typedef struct {
+    float i_coil_a[CTRL_LCC_PHASE_SAMPLE_COUNT];
+    float i_lf_a[CTRL_LCC_PHASE_SAMPLE_COUNT];
+    uint8_t valid_mask;
+    bool frame_ready;
+    uint32_t frame_id;
+} ctrl_lcc_phase_samples_t;
 
 typedef struct {
     float kp;
@@ -75,6 +92,8 @@ typedef struct {
     float   pll_integral;
     float   last_current_error;
     float   last_phase_error;
+    uint8_t sample_phase_index;
+    ctrl_lcc_phase_samples_t phase_samples;
 } ctrl_lcc_state_t;
 
 /**
@@ -211,6 +230,8 @@ bool ctrl_lcc_is_pll_locked(const ctrl_lcc_t *ctrl);
  * @return true 已使能。
  */
 bool ctrl_lcc_is_enabled(const ctrl_lcc_t *ctrl);
+
+int ctrl_lcc_get_phase_samples(const ctrl_lcc_t *ctrl, ctrl_lcc_phase_samples_t *samples);
 
 #ifdef __cplusplus
 }

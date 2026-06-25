@@ -151,13 +151,13 @@ static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] =
                        },
     [ADC_CH_I_COIL] =
         {
-                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
-                       .cfg.ma = {.window_size = 4U},
+                       .type = APP_ANALOG_SIGNAL_FILTER_LPF,
+                       .cfg.lpf = {.cutoff_hz = 10000.0f, .sample_rate_hz = 148000.0f},
                        },
     [ADC_CH_I_LF] =
         {
-                       .type = APP_ANALOG_SIGNAL_FILTER_MA,
-                       .cfg.ma = {.window_size = 4U},
+                       .type = APP_ANALOG_SIGNAL_FILTER_LPF,
+                       .cfg.lpf = {.cutoff_hz = 20000.0f, .sample_rate_hz = 148000.0f},
                        },
 };
 
@@ -165,12 +165,12 @@ static const app_analog_signal_filter_cfg_t s_default_filter_cfg[ADC_CH_COUNT] =
  * Runtime State
  * ============================================================================ */
 
-algo_ma_t s_ma_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
-algo_lpf_t s_lpf_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS algo_ma_t s_ma_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
+ATTR_PLACE_AT_FAST_RAM_BSS algo_lpf_t s_lpf_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_fir_t s_fir_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_biquad_t s_biquad_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 
-static float s_ma_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
+ATTR_PLACE_AT_FAST_RAM_BSS static float s_ma_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
                                 [APP_ANALOG_SIGNAL_FILTER_MA_MAX_WINDOW];
 static float s_fir_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
                                  [APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS];

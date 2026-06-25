@@ -49,6 +49,8 @@ typedef struct {
         uint16_t v_link;
         uint16_t i_in;
         uint16_t v_in;
+        uint16_t i_coil;
+        uint16_t i_lf;
     } raw_adc;
     struct {
         float i_l_a;
