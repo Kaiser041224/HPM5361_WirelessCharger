@@ -7,11 +7,13 @@
 #define ATTR_RAMFUNC __attribute__((section(".fast")))
 #endif
 
-#define LCC_FREQ_DEFAULT_HZ         (148000.0f)
-#define LCC_FREQ_MIN_DEFAULT_HZ     (100000.0f)
-#define LCC_FREQ_MAX_DEFAULT_HZ     (220000.0f)
-#define LCC_PHASE_MAX_DEFAULT_DEG   (89.0f)
-#define LCC_I_COIL_LIMIT_DEFAULT_A  (10.0f)
+#define LCC_FREQ_DEFAULT_HZ         CTRL_LCC_FREQ_DEFAULT_HZ
+#define LCC_FREQ_MIN_DEFAULT_HZ     CTRL_LCC_FREQ_MIN_HZ
+#define LCC_FREQ_MAX_DEFAULT_HZ     CTRL_LCC_FREQ_MAX_HZ
+#define LCC_PHASE_MAX_DEFAULT_DEG   CTRL_LCC_PHASE_MAX_DEG
+#define LCC_PHASE_DEFAULT_DEG       CTRL_LCC_PHASE_DEFAULT_DEG
+#define LCC_DUTY_DEFAULT            CTRL_LCC_DUTY_DEFAULT
+#define LCC_I_COIL_LIMIT_DEFAULT_A  CTRL_LCC_I_COIL_LIMIT_A
 
 ATTR_RAMFUNC
 static inline bool lcc_finite(float x)
@@ -63,7 +65,9 @@ int ctrl_lcc_init(ctrl_lcc_t *ctrl)
 
     ctrl->state.mode = LCC_MODE_IDLE;
     ctrl->state.frequency_hz = LCC_FREQ_DEFAULT_HZ;
-    ctrl->state.phase_deg = 0.0f;
+    ctrl->state.phase_deg = LCC_PHASE_DEFAULT_DEG;
+    ctrl->state.duty = LCC_DUTY_DEFAULT;
+    ctrl->state.output_enabled = false;
     ctrl->state.i_coil_target_a = 0.0f;
     lcc_phase_samples_reset(ctrl);
 
@@ -86,7 +90,7 @@ void ctrl_lcc_disable(ctrl_lcc_t *ctrl)
         return;
     }
     ctrl->state.enabled = false;
-    ctrl->state.phase_deg = 0.0f;
+    ctrl->state.output_enabled = false;
     ctrl->state.current_integral = 0.0f;
     ctrl->state.pll_integral = 0.0f;
 }
@@ -101,7 +105,7 @@ void ctrl_lcc_emergency_stop(ctrl_lcc_t *ctrl)
 }
 
 ATTR_RAMFUNC
-void ctrl_lcc_step(ctrl_lcc_t *ctrl, float i_coil, float i_lf)
+void ctrl_lcc_push_sample(ctrl_lcc_t *ctrl, float i_coil, float i_lf)
 {
     uint8_t p = ctrl->state.sample_phase_index;
     ctrl->state.phase_samples.i_coil_a[p] = i_coil;
@@ -112,6 +116,16 @@ void ctrl_lcc_step(ctrl_lcc_t *ctrl, float i_coil, float i_lf)
         ctrl->state.phase_samples.frame_ready = true;
         ctrl->state.phase_samples.frame_id++;
     }
+}
+
+ATTR_RAMFUNC
+void ctrl_lcc_step(ctrl_lcc_t *ctrl)
+{
+    if (!ctrl->state.enabled || ctrl->state.mode == LCC_MODE_IDLE) {
+        ctrl->state.output_enabled = false;
+        return;
+    }
+    ctrl->state.output_enabled = true;
 }
 
 void ctrl_lcc_set_mode(ctrl_lcc_t *ctrl, ctrl_lcc_mode_t mode)
@@ -148,6 +162,14 @@ void ctrl_lcc_set_i_coil_target(ctrl_lcc_t *ctrl, float target_a)
     float limit = (ctrl->params.i_coil_limit_a > 0.0f) ? ctrl->params.i_coil_limit_a
                                                        : LCC_I_COIL_LIMIT_DEFAULT_A;
     ctrl->state.i_coil_target_a = lcc_clampf(target_a, -limit, limit);
+}
+
+void ctrl_lcc_set_duty(ctrl_lcc_t *ctrl, float duty)
+{
+    if (ctrl == NULL || !lcc_finite(duty)) {
+        return;
+    }
+    ctrl->state.duty = lcc_clampf(duty, 0.0f, 1.0f);
 }
 
 void ctrl_lcc_set_params(ctrl_lcc_t *ctrl, const ctrl_lcc_params_t *params)
@@ -198,4 +220,20 @@ int ctrl_lcc_get_phase_samples(const ctrl_lcc_t *ctrl, ctrl_lcc_phase_samples_t 
     }
     *samples = ctrl->state.phase_samples;
     return 0;
+}
+
+ATTR_RAMFUNC
+void ctrl_lcc_get_cmd(const ctrl_lcc_t *ctrl, ctrl_lcc_cmd_t *cmd)
+{
+    if (cmd == NULL) {
+        return;
+    }
+    if (ctrl == NULL) {
+        *cmd = (ctrl_lcc_cmd_t){0};
+        return;
+    }
+    cmd->frequency_hz = ctrl->state.frequency_hz;
+    cmd->phase_deg = ctrl->state.phase_deg;
+    cmd->duty = ctrl->state.duty;
+    cmd->output_enabled = ctrl->state.output_enabled;
 }

@@ -21,7 +21,6 @@
 #include "ctrl_lcc.h"
 
 #include "hpm_common.h"
-#include "irq_profiler.h"
 
 #include <stddef.h>
 
@@ -31,13 +30,8 @@
 
 /* 放入 DLM (fast_ram.bss)，ISR 中高频写入，主循环读取，消除 flash 访问延迟 */
 ATTR_PLACE_AT_FAST_RAM_BSS volatile ctrl_diag_t g_ctrl_diag;
-volatile uint32_t g_isr_cycles_max = 0;
-volatile uint32_t g_isr_cycles_max_voltage = 0;
-volatile uint32_t g_isr_cycles_max_power = 0;
 
-#define CTRL_FREQ_DIVIDER               2
-#define APP_CONTROL_CW_TARGET_DEFAULT_W 15.0f
-
+#define CTRL_FREQ_DIVIDER 2
 /* ============================================================================
  * 控制器实例
  * ============================================================================ */
@@ -46,6 +40,7 @@ ATTR_PLACE_AT_FAST_RAM_BSS static ctrl_buckboost_t g_buckboost;
 ATTR_PLACE_AT_FAST_RAM_BSS static ctrl_lcc_t g_lcc;
 ATTR_PLACE_AT_FAST_RAM_BSS static volatile uint32_t s_buckboost_vlink_sample_seq;
 ATTR_PLACE_AT_FAST_RAM_BSS static uint32_t s_buckboost_vlink_consumed_seq;
+ATTR_PLACE_AT_FAST_RAM_BSS static uint32_t s_lcc_last_freq_hz;
 
 static inline void buckboost_vlink_sample_reset(void) {
     s_buckboost_vlink_sample_seq = 0U;
@@ -60,13 +55,10 @@ static inline void buckboost_vlink_sample_reset(void) {
  * ============================================================================ */
 
 /* ISR 函数放入 ILM (指令 RAM)，消除 flash wait state 和 cache miss，
- * 保证 ADC1 PMT 快路径的确定性；最大耗时通过 g_isr_cycles_max 观测。 */
+ * 保证 ADC1 PMT 快路径的确定性。 */
 
 ATTR_RAMFUNC
 static void buckboost_current_loop_isr(void) {
-    uint32_t t0 = irq_prof_read_cycle();
-    uint32_t elapsed;
-
     /* I_L: 每个周期读取 + 转换 + 滤波 (200kHz) */
     uint16_t raw_i_l;
     if (app_adc_get_pmt_raw(ADC_CH_I_L, &raw_i_l) != 0) {
@@ -105,16 +97,14 @@ static void buckboost_current_loop_isr(void) {
             HRPWM_BUCKBOOST_A, g_ctrl_diag.duty.buckboost_a, HRPWM_BUCKBOOST_B,
             g_ctrl_diag.duty.buckboost_b);
     }
-
 exit:;
-    elapsed = irq_prof_read_cycle() - t0;
-    if (elapsed > g_isr_cycles_max) {
-        g_isr_cycles_max = elapsed;
-    }
 }
 
 /* ============================================================================
- * ISR 回调 — LCC 电流内环 (148kHz, ADC0 PMT 完成回调)
+ * ISR 回调 — LCC 电流采集 (ADC0 PMT 完成回调，只采样滤波，不做控制)
+ *
+ * 控制计算已解耦到 10kHz 的 lcc_control_loop_isr (GPTMR1 CH2)，本回调只负责
+ * 高频采集：读 raw → float 换算 → LPF 滤波，结果存入 g_ctrl_diag 供控制环读取。
  * ============================================================================ */
 
 ATTR_RAMFUNC
@@ -134,7 +124,29 @@ static void lcc_current_loop_isr(void) {
     g_ctrl_diag.filt.i_coil_a = app_analog_signal_lpf_step_fast(ADC_CH_I_COIL, phys_i_coil);
     g_ctrl_diag.filt.i_lf_a = app_analog_signal_lpf_step_fast(ADC_CH_I_LF, phys_i_lf);
 
-    ctrl_lcc_step(&g_lcc, phys_i_coil, phys_i_lf);
+    /* 4 点相位采样跟随 ADC0 采集节奏推进 (控制决策在 10kHz lcc_control_loop_isr) */
+    ctrl_lcc_push_sample(&g_lcc, phys_i_coil, phys_i_lf);
+}
+
+/* ============================================================================
+ * ISR 回调 — LCC 控制环 (10kHz, GPTMR1 CH2)
+ *
+ * 与 ADC0 高频采集解耦：读取采集环滤波好的电流值 → ctrl_lcc_step → 下发 PWM0
+ * 命令。低频控制使 ADC0 快路径只做采集，大幅降低单次 ISR 耗时与 CPU 占用。
+ * ============================================================================ */
+
+ATTR_RAMFUNC
+static void lcc_control_loop_isr(void) {
+    ctrl_lcc_step(&g_lcc);
+
+    ctrl_lcc_cmd_t lcc_cmd;
+    ctrl_lcc_get_cmd(&g_lcc, &lcc_cmd);
+    uint32_t freq_hz = (uint32_t)lcc_cmd.frequency_hz;
+    if (freq_hz != s_lcc_last_freq_hz) {
+        s_lcc_last_freq_hz = freq_hz;
+        // app_hrpwm_set_frequency(HRPWM_INST_LCC, freq_hz);
+        app_adc_set_pmt_trigger_position(APP_ADC_INST_0, APP_ADC_PMT_POSITION_RATIO_ADC0);
+    }
 }
 
 /* ============================================================================
@@ -143,9 +155,6 @@ static void lcc_current_loop_isr(void) {
 
 ATTR_RAMFUNC
 static void buckboost_voltage_loop_isr(void) {
-    uint32_t t0 = irq_prof_read_cycle();
-    uint32_t elapsed;
-
     /* V_LINK 采样已在 200kHz 电流环中完成；电压环只对 fast 值做 MA 平滑。
      * sample_seq 同时保留启动阶段 PMT cache 未就绪时跳过外环的行为，并避免
      * ADC/PMT 停滞后继续消费同一份旧样本。 */
@@ -179,17 +188,10 @@ static void buckboost_voltage_loop_isr(void) {
     ctrl_buckboost_update_voltage(buckboost, v_link_fb, i_load_ff, i_load_ff);
 
 exit:;
-    elapsed = irq_prof_read_cycle() - t0;
-    if (elapsed > g_isr_cycles_max_voltage) {
-        g_isr_cycles_max_voltage = elapsed;
-    }
 }
 
 ATTR_RAMFUNC
 static void buckboost_power_loop_isr(void) {
-    uint32_t t0 = irq_prof_read_cycle();
-    uint32_t elapsed;
-
     uint16_t raw_v_in, raw_i_in;
     if (app_adc_get_pmt_raw(ADC_CH_V_IN, &raw_v_in) != 0
         || app_adc_get_pmt_raw(ADC_CH_I_IN, &raw_i_in) != 0) {
@@ -229,10 +231,6 @@ static void buckboost_power_loop_isr(void) {
     g_ctrl_diag.ff.power_pid_out = g_buckboost.state.power_pid_out;
 
 exit:;
-    elapsed = irq_prof_read_cycle() - t0;
-    if (elapsed > g_isr_cycles_max_power) {
-        g_isr_cycles_max_power = elapsed;
-    }
 }
 
 /* ============================================================================
@@ -258,7 +256,7 @@ static void configure_controllers_for_mode(void) {
     case MODE_BUCK_CV: ctrl_buckboost_set_target_type(&g_buckboost, BUCKBOOST_TARGET_CV); break;
     case MODE_BUCK_CC: ctrl_buckboost_set_target_type(&g_buckboost, BUCKBOOST_TARGET_CC); break;
     case MODE_BUCK_CW:
-        ctrl_buckboost_enter_cw_mode(&g_buckboost, APP_CONTROL_CW_TARGET_DEFAULT_W);
+        ctrl_buckboost_enter_cw_mode(&g_buckboost, BUCKBOOST_P_TARGET_DEFAULT);
         break;
     case MODE_LCC_OPEN: ctrl_lcc_set_mode(&g_lcc, LCC_MODE_OPEN_LOOP); break;
     case MODE_LCC_CLOSED: ctrl_lcc_set_mode(&g_lcc, LCC_MODE_CLOSED_LOOP); break;
@@ -277,13 +275,19 @@ void app_control_init(void) {
     ctrl_fault_init(NULL);
     ctrl_buckboost_init(&g_buckboost);
     ctrl_buckboost_enable(&g_buckboost);
-    ctrl_buckboost_enter_cw_mode(&g_buckboost, APP_CONTROL_CW_TARGET_DEFAULT_W);
+    ctrl_buckboost_enter_cw_mode(&g_buckboost, BUCKBOOST_P_TARGET_DEFAULT);
+
     ctrl_lcc_init(&g_lcc);
+    ctrl_lcc_set_frequency(&g_lcc, CTRL_LCC_FREQ_DEFAULT_HZ);
+    ctrl_lcc_set_phase(&g_lcc, CTRL_LCC_PHASE_DEFAULT_DEG);
+    ctrl_lcc_set_duty(&g_lcc, CTRL_LCC_DUTY_DEFAULT);
+    s_lcc_last_freq_hz = 0U;
 
     /* 2. GPTMR1 外环定时器 (通过 Platform 层)，先注册定时器回调但暂不启动 */
     app_gptmr_init();
     app_gptmr_register_callback(APP_GPTMR_CH_VOLTAGE, buckboost_voltage_loop_isr);
     app_gptmr_register_callback(APP_GPTMR_CH_POWER, buckboost_power_loop_isr);
+    app_gptmr_register_callback(APP_GPTMR_CH_LCC, lcc_control_loop_isr);
 
     /* 3. ADC PMT 完成回调: 电流内环，必须早于 GPTMR 外环启动 */
     app_adc_register_pmt_callback(APP_ADC_INST_1, buckboost_current_loop_isr);
@@ -294,7 +298,8 @@ void app_control_init(void) {
 
     /* 5. 状态初始化 */
     s_state = SYS_INIT;
-    s_mode = MODE_BUCK_CW;
+    s_mode = MODE_LCC_OPEN;
+    configure_controllers_for_mode();
     s_self_test_ok = false;
 }
 
@@ -314,6 +319,7 @@ void app_control_tick(void) {
         s_self_test_ok = self_test();
         if (s_self_test_ok) {
             s_state = SYS_IDLE;
+            (void)app_control_power_enable();
         }
         break;
 
@@ -376,6 +382,12 @@ int app_control_power_enable(void) {
     ctrl_buckboost_enable(&g_buckboost);
     ctrl_lcc_enable(&g_lcc);
 
+    ctrl_lcc_cmd_t lcc_cmd;
+    ctrl_lcc_get_cmd(&g_lcc, &lcc_cmd);
+    app_hrpwm_set_duty(HRPWM_LCC_A, lcc_cmd.duty);
+    app_hrpwm_set_duty(HRPWM_LCC_B, lcc_cmd.duty);
+    app_hrpwm_set_phase(HRPWM_INST_LCC, HRPWM_LCC_A, HRPWM_LCC_B, lcc_cmd.phase_deg);
+
     app_gptmr_start_all();
 
     s_state = SYS_RUN;
@@ -388,6 +400,9 @@ void app_control_power_disable(void) {
 
     ctrl_buckboost_disable(&g_buckboost);
     ctrl_lcc_disable(&g_lcc);
+
+    app_hrpwm_set_duty(HRPWM_LCC_A, 0.0f);
+    app_hrpwm_set_duty(HRPWM_LCC_B, 0.0f);
 
     s_state = SYS_IDLE;
 }

@@ -61,7 +61,7 @@ typedef struct {
  * Default Configuration
  * ============================================================================ */
 
-static const adc_channel_t s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
+ATTR_PLACE_AT_FAST_RAM_INIT static const adc_channel_t s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
     [APP_ANALOG_SIGNAL_ITEM_V_IN] = ADC_CH_V_IN,
     [APP_ANALOG_SIGNAL_ITEM_I_IN] = ADC_CH_I_IN,
     [APP_ANALOG_SIGNAL_ITEM_I_L] = ADC_CH_I_L,
@@ -70,7 +70,7 @@ static const adc_channel_t s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
     [APP_ANALOG_SIGNAL_ITEM_I_LF] = ADC_CH_I_LF,
 };
 
-const app_analog_signal_item_t s_channel_to_item[ADC_CH_COUNT] = {
+ATTR_PLACE_AT_FAST_RAM_INIT const app_analog_signal_item_t s_channel_to_item[ADC_CH_COUNT] = {
     [ADC_CH_V_IN] = APP_ANALOG_SIGNAL_ITEM_V_IN,
     [ADC_CH_I_IN] = APP_ANALOG_SIGNAL_ITEM_I_IN,
     [ADC_CH_I_L] = APP_ANALOG_SIGNAL_ITEM_I_L,

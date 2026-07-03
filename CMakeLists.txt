@@ -88,6 +88,7 @@ sdk_app_src(App/Debug/Src/app_debug_can.c)
 sdk_app_src(App/Debug/Src/app_debug_hrpwm.c)
 sdk_app_src(App/Debug/Src/app_debug_profiler.c)
 sdk_app_src(App/Debug/Src/app_debug_rtt.c)
+sdk_app_src(App/Debug/Src/app_debug_trap.c)
 
 # App logic — Application (skeleton)
 sdk_app_src(App/Application/Src/app_entry.c)

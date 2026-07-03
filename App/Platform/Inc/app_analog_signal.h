@@ -123,6 +123,7 @@ void app_analog_signal_convert_raw(adc_channel_t ch, uint16_t raw, float *physic
  * 滤波参数由 app_analog_signal 统一配置。
  * 非法通道直接返回原值，不会触发异常。
  */
+ALGO_RAMFUNC
 static inline float app_analog_signal_lpf_step_fast(adc_channel_t ch, float value)
 {
     if (ch >= ADC_CH_COUNT) return value;
@@ -137,6 +138,7 @@ static inline float app_analog_signal_lpf_step_fast(adc_channel_t ch, float valu
  * 滤波参数由 app_analog_signal 统一配置。
  * 非法通道或未初始化通道直接返回原值，不会触发异常。
  */
+ALGO_RAMFUNC
 static inline float app_analog_signal_ma_step(adc_channel_t ch, float value)
 {
     if (ch >= ADC_CH_COUNT) return value;

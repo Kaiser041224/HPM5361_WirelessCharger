@@ -8,6 +8,7 @@
  * 通道分配 (GPTMR1):
  *   CH0 — 电压外环 50kHz
  *   CH1 — 功率外环 25kHz
+ *   CH2 — LCC 控制环 10kHz
  *
  * Copyright (c) 2026 Alliance HardWare Team
  * SPDX-License-Identifier: BSD-3-Clause
@@ -28,6 +29,7 @@ typedef void (*app_gptmr_callback_t)(void);
 typedef enum {
     APP_GPTMR_CH_VOLTAGE = 0,   /* GPTMR1 CH0: 电压外环 */
     APP_GPTMR_CH_POWER   = 1,   /* GPTMR1 CH1: 功率外环 */
+    APP_GPTMR_CH_LCC     = 2,   /* GPTMR1 CH2: LCC 控制环 */
     APP_GPTMR_CH_COUNT,
 } app_gptmr_ch_t;
 

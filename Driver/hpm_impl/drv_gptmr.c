@@ -24,6 +24,9 @@
 #include "hpm_soc.h"
 #include "hpm_soc_irq.h"
 
+#include "SEGGER_RTT.h" /* [TEMP DIAG] clock_hz/reload 定位打印 */
+#include "irq_profiler.h" /* [TEMP DIAG] 嵌套感知中断占用测量 */
+
 #include <stddef.h>
 
 #define GPTMR_INSTANCE_COUNT    4U
@@ -62,6 +65,14 @@ static const uint32_t gptmr_irq_nums[GPTMR_INSTANCE_COUNT] = {
 };
 
 ATTR_PLACE_AT_FAST_RAM_BSS static gptmr_ch_state_t gptmr_state[GPTMR_TOTAL_CHANNELS];
+
+/* [TEMP DIAG] 每通道回调实际触发次数计数，用于核验 main_loop 饿死是否由
+ * GPTMR reload 计算错误导致的触发频率异常引起。main.c 每 250ms 读增量换算 Hz。
+ * 定位完成后应移除。 */
+ATTR_PLACE_AT_FAST_RAM_BSS volatile uint32_t g_gptmr_cb_count[GPTMR_TOTAL_CHANNELS];
+
+/* [TEMP DIAG] 累计 GPTMR ISR 总 cycle 数，与 ADC 一起用于精确 CPU 占用率核算 */
+volatile uint64_t g_gptmr_isr_total_cycles;
 
 static bool gptmr_ch_is_valid(intf_gptmr_ch_t ch)
 {
@@ -138,6 +149,8 @@ static uint32_t gptmr_calc_delta(uint32_t first, uint32_t next)
 
 static void gptmr_isr_dispatch_instance(uint8_t inst)
 {
+    irq_prof_nest_enter(); /* [TEMP DIAG] */
+    uint32_t t0 = hpm_csr_get_core_cycle(); /* [TEMP DIAG] */
     GPTMR_Type *base = gptmr_bases[inst];
     uint8_t ch_base = inst * GPTMR_CHANNELS_PER_INST;
 
@@ -155,11 +168,17 @@ static void gptmr_isr_dispatch_instance(uint8_t inst)
         uint32_t status = gptmr_get_status(base);
         if (status & rld_mask) {
             gptmr_clear_status(base, rld_mask);
+            /* [TEMP DIAG] 强制 readback，确保 W1C 清除写已真正落地到外设，
+             * 排除 ISR 返回→PLIC complete 时 SR 位仍 assert 导致虚假重入的可能。 */
+            (void)gptmr_get_status(base);
+            g_gptmr_cb_count[ch]++; /* [TEMP DIAG] */
             if (gptmr_state[ch].callback != NULL) {
                 gptmr_state[ch].callback();
             }
         }
     }
+    g_gptmr_isr_total_cycles += (hpm_csr_get_core_cycle() - t0); /* [TEMP DIAG] */
+    irq_prof_nest_exit(); /* [TEMP DIAG] */
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_GPTMR0, isr_gptmr0)
@@ -191,6 +210,10 @@ static int gptmr_drv_init(intf_gptmr_ch_t ch, const intf_gptmr_cfg_t *cfg)
 
     clock_add_to_group(gptmr_clocks[inst], 0);
     uint32_t clock_hz = clock_get_frequency(gptmr_clocks[inst]);
+    /* [TEMP DIAG] 核验 clock_hz 是否在启动期读到不稳定/错误值 */
+    SEGGER_RTT_printf(
+        0, "[GPTMR_DIAG] ch=%u inst=%u clock_hz=%lu target_hz=%lu\r\n", ch, inst,
+        (unsigned long)clock_hz, (unsigned long)cfg->frequency_hz);
     if (clock_hz <= cfg->frequency_hz) {
         return -1;
     }
@@ -206,6 +229,8 @@ static int gptmr_drv_init(intf_gptmr_ch_t ch, const intf_gptmr_cfg_t *cfg)
     gptmr_channel_get_default_config(base, &hw_cfg);
 
     uint32_t reload = clock_hz / cfg->frequency_hz;
+    /* [TEMP DIAG] */
+    SEGGER_RTT_printf(0, "[GPTMR_DIAG] ch=%u reload=%lu\r\n", ch, (unsigned long)reload);
     hw_cfg.reload = reload;
     hw_cfg.enable_software_sync = cfg->enable_sync;
     hw_cfg.enable_sync_follow_previous_channel = false;

@@ -160,9 +160,9 @@ static void app_adc_pmt_cb_adc0(
 
     static const adc_channel_t slot_to_logic[4] = {
         [0] = ADC_CH_COUNT,
-        [1] = ADC_CH_V_IN,
+        [1] = ADC_CH_I_LF,
         [2] = ADC_CH_I_COIL,
-        [3] = ADC_CH_I_LF,
+        [3] = ADC_CH_I_IN,
     };
 
     for (uint8_t i = 1; i < count && i < 4U; i++) {
@@ -189,9 +189,9 @@ static void app_adc_pmt_cb_adc1(
 
     static const adc_channel_t slot_to_logic[4] = {
         [0] = ADC_CH_COUNT,
-        [1] = ADC_CH_V_LINK,
-        [2] = ADC_CH_I_L,
-        [3] = ADC_CH_I_IN,
+        [1] = ADC_CH_I_L,
+        [2] = ADC_CH_V_LINK,
+        [3] = ADC_CH_V_IN,
     };
 
     for (uint8_t i = 1; i < count && i < 4U; i++) {
@@ -229,7 +229,7 @@ void app_adc_init(void) {
      *            signal reaches the ADC inputs.
      * ================================================================ */
 
-    /* ADC0 PMT — 4 channels (dummy, V_IN, I_COIL, I_LF) on trig_ch=0 (PWM0 148kHz) */
+    /* ADC0 PMT — 4 channels (dummy, I_LF, I_COIL, I_IN) on trig_ch=0 (PWM0 148kHz) */
     {
         memset(pmt_dma0, 0, sizeof(pmt_dma0));
         intf_adc_cfg_t cfg = {
@@ -246,14 +246,14 @@ void app_adc_init(void) {
             .pmt_cb = app_adc_pmt_cb_adc0,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 15U;
-        cfg.pmt_ch_list[1] = 6U;
-        cfg.pmt_ch_list[2] = 4U;
-        cfg.pmt_ch_list[3] = 5U;
+        cfg.pmt_ch_list[0] = 15U; /* dummy warmup slot (discarded) */
+        cfg.pmt_ch_list[1] = 5U;  /* I_LF   (PB13 / ADC0.5)  */
+        cfg.pmt_ch_list[2] = 4U;  /* I_COIL (PB12 / ADC0.4)  */
+        cfg.pmt_ch_list[3] = 11U; /* I_IN   (PB08 / ADC0.11) */
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_0, 0), &cfg);
     }
 
-    /* ADC1 PMT — 4 channels (dummy, V_LINK, I_L, I_IN) on trig_ch=3 (PWM1 200kHz). */
+    /* ADC1 PMT — 4 channels (dummy, I_L, V_LINK, V_IN) on trig_ch=3 (PWM1 200kHz). */
     {
         memset(pmt_dma1, 0, sizeof(pmt_dma1));
         intf_adc_cfg_t cfg = {
@@ -270,10 +270,10 @@ void app_adc_init(void) {
             .pmt_cb = app_adc_pmt_cb_adc1,
             .pmt_cb_user_data = NULL,
         };
-        cfg.pmt_ch_list[0] = 15U;
-        cfg.pmt_ch_list[1] = 3U;
-        cfg.pmt_ch_list[2] = 2U;
-        cfg.pmt_ch_list[3] = 11U;
+        cfg.pmt_ch_list[0] = 15U; /* dummy warmup slot (discarded) */
+        cfg.pmt_ch_list[1] = 2U;  /* I_L    (PB10 / ADC1.2) */
+        cfg.pmt_ch_list[2] = 3U;  /* V_LINK (PB11 / ADC1.3) */
+        cfg.pmt_ch_list[3] = 6U;  /* V_IN   (PB14 / ADC1.6) */
         (void)intf_adc_init(INTF_ADC_CH(APP_ADC_INST_1, 0), &cfg);
     }
 

@@ -166,6 +166,12 @@ irq_prof_cycle_t irq_prof_get_overhead_cycles(void);
 /* Measurement overhead calibration */
 irq_prof_cycle_t irq_prof_measure_overhead(void);
 
+/* [TEMP DIAG] 嵌套感知的中断总占用测量。每个 ISR 最外层入口调 enter、出口调 exit，
+ * 内层嵌套自动不重复计。g_irq_busy_cycles = CPU 处于中断态的真实墙钟 cycle。 */
+extern volatile uint64_t g_irq_busy_cycles;
+void irq_prof_nest_enter(void);
+void irq_prof_nest_exit(void);
+
 /* ============================================================================
  * Convenience macros - empty when disabled
  * ============================================================================ */

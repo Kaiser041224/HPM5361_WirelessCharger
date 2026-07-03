@@ -34,14 +34,13 @@
 #define BUCKBOOST_I_L_LIMIT_DEFAULT       16.0f
 #define BUCKBOOST_V_OUT_LIMIT_DEFAULT     48.0f
 #define BUCKBOOST_V_OUT_TARGET_DEFAULT    12.0f
-#define BUCKBOOST_I_LINK_TARGET_DEFAULT   2.0f
-#define BUCKBOOST_P_TARGET_DEFAULT        15.0f
+#define BUCKBOOST_I_LINK_TARGET_DEFAULT   32.0f
 #define BUCKBOOST_BUS_SUM_MIN_V           1.0f
 #define BUCKBOOST_VLINK_LIMIT_ENTER_RATIO 1.00f
 #define BUCKBOOST_VLINK_LIMIT_EXIT_RATIO  0.96f
 
 /* 功率环 PID 输出范围 */
-#define BUCKBOOST_POWER_PID_OUT_MAX 27.0f
+#define BUCKBOOST_POWER_PID_OUT_MAX 32.0f
 #define BUCKBOOST_POWER_PID_OUT_MIN (-BUCKBOOST_POWER_PID_OUT_MAX)
 /* 电流环 PID 输出为有符号平均电感电压命令 V_L_cmd */
 #define BUCKBOOST_CURRENT_PID_OUT_MIN (-48.0f)
@@ -791,10 +790,12 @@ void ctrl_buckboost_set_params(ctrl_buckboost_t* ctrl, const ctrl_buckboost_para
  * 输出读取
  * ============================================================================ */
 
+ATTR_RAMFUNC
 float ctrl_buckboost_get_duty_a(const ctrl_buckboost_t* ctrl) {
     return (ctrl != NULL) ? ctrl->state.duty_a : 0.0f;
 }
 
+ATTR_RAMFUNC
 float ctrl_buckboost_get_duty_b(const ctrl_buckboost_t* ctrl) {
     return (ctrl != NULL) ? ctrl->state.duty_b : 0.0f;
 }

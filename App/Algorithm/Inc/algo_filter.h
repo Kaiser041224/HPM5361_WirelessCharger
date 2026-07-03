@@ -19,10 +19,15 @@
 extern "C" {
 #endif
 
+#ifndef ALGO_RAMFUNC
+#define ALGO_RAMFUNC __attribute__((section(".fast")))
+#endif
+
 #define ALGO_PI_F 3.14159265358979323846f
 
 /* ── IEEE-754 finite check (bit-level, survives -ffast-math) ──────────── */
 
+ALGO_RAMFUNC
 static inline bool algo_flt_finite(float x)
 {
     union { float f; uint32_t u; } v = { .f = x };
@@ -64,6 +69,7 @@ struct algo_ma {
 
 void algo_ma_ctor(algo_ma_t *s);
 
+ALGO_RAMFUNC
 static inline float algo_ma_step_fast(algo_ma_t *s, float x)
 {
     if (!s->_inited) return 0.0f;
@@ -128,6 +134,7 @@ struct algo_lpf {
 
 void algo_lpf_ctor(algo_lpf_t *s);
 
+ALGO_RAMFUNC
 static inline float algo_lpf_step_fast(algo_lpf_t *s, float x)
 {
     if (!s->_inited) return 0.0f;
@@ -231,6 +238,7 @@ struct algo_biquad {
 
 void algo_biquad_ctor(algo_biquad_t *s);
 
+ALGO_RAMFUNC
 static inline float algo_biquad_step_fast(algo_biquad_t *s, float x)
 {
     if (!s->_inited) return 0.0f;

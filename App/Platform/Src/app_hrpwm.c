@@ -15,14 +15,16 @@
 
 #include <stdbool.h>
 
-static const intf_hrpwm_ch_t pair_to_ch[HRPWM_PAIR_COUNT] = {0, 2, 4, 6};
+ATTR_PLACE_AT_FAST_RAM_INIT static const intf_hrpwm_ch_t pair_to_ch[HRPWM_PAIR_COUNT] = {0, 2, 4, 6};
 
 extern void hpm_hrpwm_driver_register(void);
 
+ATTR_RAMFUNC
 static bool hrpwm_pair_is_valid(hrpwm_pair_t pair) { return pair < HRPWM_PAIR_COUNT; }
 
 static bool hrpwm_inst_is_valid(hrpwm_inst_t inst) { return inst < HRPWM_INST_COUNT; }
 
+ATTR_RAMFUNC
 static intf_hrpwm_ch_t hrpwm_pair_channel(hrpwm_pair_t pair) { return pair_to_ch[pair]; }
 
 void app_hrpwm_init(void) {
@@ -31,7 +33,7 @@ void app_hrpwm_init(void) {
     intf_hrpwm_pair_cfg_t cfg[HRPWM_PAIR_COUNT] = {
         // LCC PWM配置
         [HRPWM_LCC_A] =
-            {.frequency_hz = 148000,
+            {.frequency_hz = 114514,
                            .duty = 0.0f,
                            .deadtime_ns = 25,
                            .jitter_cmp = 4,
@@ -40,13 +42,13 @@ void app_hrpwm_init(void) {
                            .invert_low_side = false},
         /* LCC_B: 两路输出反相 (物理连线差异) */
         [HRPWM_LCC_B] =
-            {.frequency_hz = 148000,
+            {.frequency_hz = 114514,
                            .duty = 0.0f,
                            .deadtime_ns = 25,
                            .jitter_cmp = 4,
                            .align = INTF_HRPWM_ALIGN_CENTER,
                            .invert_high_side = true,
-                           .invert_low_side = true},
+                           .invert_low_side = true },
         // BUCKBOOST PWM配置
         [HRPWM_BUCKBOOST_A] =
             {.frequency_hz = 200000,
@@ -69,8 +71,10 @@ void app_hrpwm_init(void) {
         (void)intf_hrpwm_init_pair(hrpwm_pair_channel(pair), &cfg[pair]);
         /* PWM configured but NOT started — ADC calibrates in quiet environment first */
     }
+    app_hrpwm_set_phase(HRPWM_INST_LCC, HRPWM_LCC_A, HRPWM_LCC_B, 180.0f);
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_set_duty(hrpwm_pair_t pair, float duty) {
     if (!hrpwm_pair_is_valid(pair))
         return;
@@ -78,6 +82,7 @@ void app_hrpwm_set_duty(hrpwm_pair_t pair, float duty) {
     (void)intf_hrpwm_set_duty(hrpwm_pair_channel(pair), duty);
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_set_duty_direct(hrpwm_pair_t pair, float duty) {
     if (!hrpwm_pair_is_valid(pair))
         return;
@@ -85,6 +90,7 @@ void app_hrpwm_set_duty_direct(hrpwm_pair_t pair, float duty) {
     (void)intf_hrpwm_set_duty_direct(hrpwm_pair_channel(pair), duty);
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_set_duty_direct_dual(
     hrpwm_pair_t pair_a, float duty_a, hrpwm_pair_t pair_b, float duty_b) {
     if (!hrpwm_pair_is_valid(pair_a) || !hrpwm_pair_is_valid(pair_b))
@@ -135,6 +141,7 @@ void app_hrpwm_start_all(void) {
     }
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_force_low(hrpwm_pair_t pair) {
     if (!hrpwm_pair_is_valid(pair))
         return;
@@ -143,6 +150,7 @@ void app_hrpwm_force_low(hrpwm_pair_t pair) {
     (void)intf_hrpwm_force_low((intf_hrpwm_ch_t)(hrpwm_pair_channel(pair) + 1U));
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_force_release(hrpwm_pair_t pair) {
     if (!hrpwm_pair_is_valid(pair))
         return;
@@ -151,6 +159,7 @@ void app_hrpwm_force_release(hrpwm_pair_t pair) {
     (void)intf_hrpwm_force_release((intf_hrpwm_ch_t)(hrpwm_pair_channel(pair) + 1U));
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_emergency_stop(void) {
     for (hrpwm_pair_t pair = HRPWM_LCC_A; pair < HRPWM_PAIR_COUNT; pair++) {
         app_hrpwm_force_low(pair);
@@ -180,6 +189,7 @@ void app_hrpwm_clear_fault(void) {
     (void)intf_hrpwm_clear_fault((intf_hrpwm_inst_t)HRPWM_INST_BUCKBOOST);
 }
 
+ATTR_RAMFUNC
 void app_hrpwm_set_phase(
     hrpwm_inst_t inst, uint8_t ref_pair, uint8_t target_pair, float phase_deg) {
     intf_hrpwm_phase_cfg_t cfg = {

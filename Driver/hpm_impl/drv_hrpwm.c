@@ -120,7 +120,7 @@ typedef struct {
     uint32_t cmp_end;
 } hrpwm_cmp_pair_t;
 
-static const hrpwm_channel_map_t hrpwm_channel_maps[] = {
+ATTR_PLACE_AT_FAST_RAM_INIT static const hrpwm_channel_map_t hrpwm_channel_maps[] = {
     {
      .channel = BOARD_APP_HRPWM_PWM0_PAIR0_OUT,
      .instance = 0,
@@ -193,6 +193,7 @@ static const hrpwm_channel_map_t* hrpwm_get_pair_map(uint8_t inst, uint8_t pair)
     return NULL;
 }
 
+ATTR_RAMFUNC
 static const hrpwm_channel_map_t* hrpwm_get_channel_map(intf_hrpwm_ch_t ch) {
     intf_hrpwm_ch_t pair_channel = (intf_hrpwm_ch_t)(ch & (uint8_t)~1U);
 
@@ -204,6 +205,7 @@ static const hrpwm_channel_map_t* hrpwm_get_channel_map(intf_hrpwm_ch_t ch) {
     return NULL;
 }
 
+ATTR_RAMFUNC
 static bool hrpwm_is_valid_duty(float duty) {
     return (duty == duty) && (duty >= 0.0f) && (duty <= 1.0f);
 }
@@ -212,10 +214,12 @@ static bool hrpwm_is_valid_align(intf_hrpwm_align_t align) {
     return (align == INTF_HRPWM_ALIGN_EDGE) || (align == INTF_HRPWM_ALIGN_CENTER);
 }
 
+ATTR_RAMFUNC
 static uint32_t hrpwm_duty_to_cmp_count(uint32_t reload, float duty) {
     return (uint32_t)((float)reload * duty);
 }
 
+ATTR_RAMFUNC
 static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float duty) {
     hrpwm_cmp_pair_t cmp;
 
@@ -262,6 +266,7 @@ static hrpwm_cmp_pair_t hrpwm_calc_center_aligned_cmp(uint32_t reload, float dut
     return cmp;
 }
 
+ATTR_RAMFUNC
 static hrpwm_cmp_pair_t hrpwm_calc_edge_aligned_cmp(uint32_t reload, float duty) {
     hrpwm_cmp_pair_t cmp;
 
@@ -294,6 +299,7 @@ static hrpwm_cmp_pair_t hrpwm_calc_edge_aligned_cmp(uint32_t reload, float duty)
     return cmp;
 }
 
+ATTR_RAMFUNC
 static hrpwm_cmp_pair_t hrpwm_calc_cmp_pair(uint32_t reload, float duty, intf_hrpwm_align_t align) {
     if (align == INTF_HRPWM_ALIGN_CENTER) {
         return hrpwm_calc_center_aligned_cmp(reload, duty);
@@ -302,6 +308,7 @@ static hrpwm_cmp_pair_t hrpwm_calc_cmp_pair(uint32_t reload, float duty, intf_hr
     return hrpwm_calc_edge_aligned_cmp(reload, duty);
 }
 
+ATTR_RAMFUNC
 static void
     hrpwm_write_cmp_pair(PWM_Type* base, uint8_t cmp_start_index, const hrpwm_cmp_pair_t* cmp) {
 #if HRPWM_USE_EXTENDED_COUNTER
@@ -320,6 +327,7 @@ static void
 #endif
 }
 
+ATTR_RAMFUNC
 static void hrpwm_set_pair_output_invert(
     PWM_Type* base, const hrpwm_channel_map_t* map, bool invert_window) {
     pwm_output_channel_t ch_cfg;
@@ -495,6 +503,7 @@ static int hrpwm_apply_phase(uint8_t inst) {
     return 0;
 }
 
+ATTR_RAMFUNC
 static int hrpwm_apply_duty(const hrpwm_channel_map_t* map) {
     PWM_Type* base;
     const hrpwm_channel_state_t* channel;
@@ -657,6 +666,7 @@ static int hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t* cfg)
     return hrpwm_apply_duty(map);
 }
 
+ATTR_RAMFUNC
 static int hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty) {
     const hrpwm_channel_map_t* map;
     hrpwm_instance_state_t* inst_state;
@@ -689,6 +699,7 @@ static int hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty) {
     return 0;
 }
 
+ATTR_RAMFUNC
 static int hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty) {
     const hrpwm_channel_map_t* map;
     hrpwm_instance_state_t* inst_state;
@@ -708,6 +719,7 @@ static int hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty) {
     return hrpwm_apply_duty(map);
 }
 
+ATTR_RAMFUNC
 static int hrpwm_set_duty_direct_dual(
     intf_hrpwm_ch_t ch_a, float duty_a,
     intf_hrpwm_ch_t ch_b, float duty_b)

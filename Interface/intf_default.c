@@ -29,6 +29,7 @@ int intf_hrpwm_register(const intf_hrpwm_t *ops)
     return 0;
 }
 
+ATTR_RAMFUNC
 static const intf_hrpwm_t *hrpwm_get_ops_by_ch(intf_hrpwm_ch_t ch)
 {
     uint8_t inst = ch / 4;
@@ -43,6 +44,7 @@ int intf_hrpwm_init_pair(intf_hrpwm_ch_t ch, const intf_hrpwm_pair_cfg_t *cfg)
     return -1;
 }
 
+ATTR_RAMFUNC
 int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty)
 {
     const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
@@ -50,6 +52,7 @@ int intf_hrpwm_set_duty(intf_hrpwm_ch_t ch, float duty)
     return -1;
 }
 
+ATTR_RAMFUNC
 int intf_hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty)
 {
     const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
@@ -57,6 +60,7 @@ int intf_hrpwm_set_duty_direct(intf_hrpwm_ch_t ch, float duty)
     return -1;
 }
 
+ATTR_RAMFUNC
 int intf_hrpwm_set_duty_direct_dual(intf_hrpwm_ch_t ch_a, float duty_a,
                                      intf_hrpwm_ch_t ch_b, float duty_b)
 {
@@ -93,6 +97,7 @@ int intf_hrpwm_stop(intf_hrpwm_ch_t ch)
     return -1;
 }
 
+ATTR_RAMFUNC
 int intf_hrpwm_force_low(intf_hrpwm_ch_t ch)
 {
     const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
@@ -100,6 +105,7 @@ int intf_hrpwm_force_low(intf_hrpwm_ch_t ch)
     return -1;
 }
 
+ATTR_RAMFUNC
 int intf_hrpwm_force_release(intf_hrpwm_ch_t ch)
 {
     const intf_hrpwm_t *ops = hrpwm_get_ops_by_ch(ch);
@@ -142,6 +148,7 @@ int intf_hrpwm_disable_reload_irq(intf_hrpwm_inst_t inst)
     return -1;
 }
 
+ATTR_RAMFUNC
 int intf_hrpwm_set_phase(const intf_hrpwm_phase_cfg_t *cfg)
 {
     if (cfg == NULL || cfg->inst >= HRPWM_INSTANCE_COUNT || hrpwm_ops[cfg->inst] == NULL) return -1;

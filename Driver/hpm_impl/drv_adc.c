@@ -92,6 +92,11 @@ typedef struct {
 ATTR_PLACE_AT_FAST_RAM_BSS static adc_inst_t adc_instances[INTF_ADC_INSTANCE_COUNT];
 ATTR_PLACE_AT_FAST_RAM_BSS static volatile intf_adc_diag_snapshot_t adc_diag;
 
+/* [TEMP DIAG] 累计 ISR 总 cycle 数，用于精确计算 CPU 占用率(总和/墙钟)，
+ * 取代之前不可靠的"最坏值×频率"外推法。g_adc_isr_total_cycles[inst] 由主循环
+ * 读取并与经过的墙钟 cycle 相除得到真实占用百分比。 */
+volatile uint64_t g_adc_isr_total_cycles[INTF_ADC_INSTANCE_COUNT];
+
 /* ============================================================================
  * Hardware Mapping Helpers
  * ============================================================================ */
@@ -251,7 +256,21 @@ static void adc_generic_isr(uint8_t inst) {
 
                 restore_global_irq(mstatus);
 
-                adc16_pmt_dma_data_t* dma = (adc16_pmt_dma_data_t*)snap;
+                /* 从 DMA 结果字直接位运算提取字段，避免 (adc16_pmt_dma_data_t*)snap
+                 * 类型双关：-O2/-O3 的 strict-aliasing + DSE 会消除 snap[] 赋值，
+                 * 导致读到未初始化栈值、PMT 校验全失败、控制回调不执行。位布局与
+                 * hpm_adc16_drv.h 的 adc16_pmt_dma_data_t 一致(此 SoC IP_VERSION>=2)。 */
+#if defined(ADC_SOC_IP_VERSION) && (ADC_SOC_IP_VERSION < 2)
+#define ADC_PMT_RESULT(w)    ((uint16_t)((w) & 0xFFFFU))
+#define ADC_PMT_TRIG_CH(w)   ((uint8_t)(((w) >> 22) & 0x0FU))
+#define ADC_PMT_ADC_CH(w)    ((uint8_t)(((w) >> 26) & 0x1FU))
+#define ADC_PMT_CYCLE_BIT(w) ((uint8_t)(((w) >> 31) & 0x01U))
+#else
+#define ADC_PMT_RESULT(w)    ((uint16_t)((w) & 0xFFFFU))
+#define ADC_PMT_ADC_CH(w)    ((uint8_t)(((w) >> 20) & 0x1FU))
+#define ADC_PMT_TRIG_CH(w)   ((uint8_t)(((w) >> 25) & 0x0FU))
+#define ADC_PMT_CYCLE_BIT(w) ((uint8_t)(((w) >> 31) & 0x01U))
+#endif
 #if ADC_PMT_ISR_TRACE
                 if (inst < 2 && (++pmt_trace_cnt[inst] % 100) == 0) {
                     SEGGER_RTT_printf(
@@ -260,24 +279,26 @@ static void adc_generic_isr(uint8_t inst) {
                     for (uint8_t t = 0; t < 4; t++) {
                         SEGGER_RTT_printf(
                             0, "  [%d] raw=0x%08X cb=%d tc=%d ac=%d res=0x%04X\r\n", t, snap[t],
-                            dma[t].cycle_bit, dma[t].trig_ch, dma[t].adc_ch, dma[t].result);
+                            ADC_PMT_CYCLE_BIT(snap[t]), ADC_PMT_TRIG_CH(snap[t]),
+                            ADC_PMT_ADC_CH(snap[t]), ADC_PMT_RESULT(snap[t]));
                     }
                 }
 #endif
                 for (uint8_t i = 0; i < ai->pmt.ch_count && i < 4; i++) {
-                    if (dma[i].cycle_bit == 0) {
+                    uint32_t w = snap[i];
+                    if (ADC_PMT_CYCLE_BIT(w) == 0) {
                         adc_diag.pmt_invalid_cycle[inst]++;
                         continue;
                     }
-                    if (dma[i].trig_ch != ai->pmt.trig_ch) {
+                    if (ADC_PMT_TRIG_CH(w) != ai->pmt.trig_ch) {
                         adc_diag.pmt_invalid_trig[inst]++;
                         continue;
                     }
-                    if (dma[i].adc_ch != ai->pmt.ch_list[i]) {
+                    if (ADC_PMT_ADC_CH(w) != ai->pmt.ch_list[i]) {
                         adc_diag.pmt_invalid_channel[inst]++;
                         continue;
                     }
-                    values[valid] = dma[i].result;
+                    values[valid] = ADC_PMT_RESULT(w);
                     valid++;
                 }
             } else {
@@ -334,18 +355,23 @@ static void adc_generic_isr(uint8_t inst) {
     if (elapsed > adc_diag.isr_cycles_max[inst]) {
         adc_diag.isr_cycles_max[inst] = elapsed;
     }
+    g_adc_isr_total_cycles[inst] += elapsed; /* [TEMP DIAG] 累计总占用 */
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC0, isr_adc0)
 void isr_adc0(void) {
+    irq_prof_nest_enter(); /* [TEMP DIAG] */
     adc_diag.irq_entry[0]++;
     adc_generic_isr(0);
+    irq_prof_nest_exit(); /* [TEMP DIAG] */
 }
 
 SDK_DECLARE_EXT_ISR_M(IRQn_ADC1, isr_adc1)
 void isr_adc1(void) {
+    irq_prof_nest_enter(); /* [TEMP DIAG] */
     adc_diag.irq_entry[1]++;
     adc_generic_isr(1);
+    irq_prof_nest_exit(); /* [TEMP DIAG] */
 }
 
 int adc_get_diag_snapshot(intf_adc_diag_snapshot_t *snapshot)

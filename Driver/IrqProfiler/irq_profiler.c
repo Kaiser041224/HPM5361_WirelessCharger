@@ -9,12 +9,41 @@
 
 #include "irq_profiler.h"
 
+#include "hpm_interrupt.h" /* [TEMP DIAG] disable_global_irq for nest-aware busy accounting */
+
 #include <limits.h>
 #include <stddef.h>
 #include <string.h>
 
 volatile irq_prof_cycle_t g_irq_prof_stamp[IRQ_PROF_MAX_SLOTS];
 volatile irq_prof_raw_t   g_irq_prof_raw[IRQ_PROF_MAX_SLOTS];
+
+/* [TEMP DIAG] 嵌套感知的中断总占用测量：只在最外层 ISR 进入(nest 0→1)记起点、
+ * 最外层退出(1→0)累加墙钟 cycle，内层嵌套不重复计。得到 CPU 真正处于中断态的
+ * 墙钟时间，物理上 ≤ 100%，消除"抢占时间被每层重复计入"的虚高。定位完成后移除。 */
+volatile uint64_t g_irq_busy_cycles;
+static volatile uint8_t  s_irq_nest_depth;
+static volatile uint32_t s_irq_outer_t0;
+
+void irq_prof_nest_enter(void) {
+    uint32_t m = disable_global_irq(CSR_MSTATUS_MIE_MASK);
+    if (s_irq_nest_depth == 0U) {
+        s_irq_outer_t0 = irq_prof_read_cycle();
+    }
+    s_irq_nest_depth++;
+    restore_global_irq(m);
+}
+
+void irq_prof_nest_exit(void) {
+    uint32_t m = disable_global_irq(CSR_MSTATUS_MIE_MASK);
+    if (s_irq_nest_depth > 0U) {
+        s_irq_nest_depth--;
+        if (s_irq_nest_depth == 0U) {
+            g_irq_busy_cycles += (uint64_t)(irq_prof_read_cycle() - s_irq_outer_t0);
+        }
+    }
+    restore_global_irq(m);
+}
 
 static const char *g_labels[IRQ_PROF_MAX_SLOTS];
 static uint8_t     g_slot_count = 0;

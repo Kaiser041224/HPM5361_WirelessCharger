@@ -20,6 +20,7 @@
 
 #define APP_GPTMR_VOLTAGE_FREQ  50000U
 #define APP_GPTMR_POWER_FREQ    25000U
+#define APP_GPTMR_LCC_FREQ      10000U
 
 extern void hpm_gptmr_driver_register(void);
 
@@ -52,8 +53,18 @@ void app_gptmr_init(void)
     };
     (void)intf_gptmr_init(app_ch_to_intf(APP_GPTMR_CH_POWER), &cfg_power);
 
+    /* CH2: LCC 控制环 10kHz */
+    intf_gptmr_cfg_t cfg_lcc = {
+        .mode         = INTF_GPTMR_MODE_TIMER,
+        .frequency_hz = APP_GPTMR_LCC_FREQ,
+        .callback     = NULL,
+        .enable_sync  = false,
+    };
+    (void)intf_gptmr_init(app_ch_to_intf(APP_GPTMR_CH_LCC), &cfg_lcc);
+
     s_callbacks[APP_GPTMR_CH_VOLTAGE] = NULL;
     s_callbacks[APP_GPTMR_CH_POWER]   = NULL;
+    s_callbacks[APP_GPTMR_CH_LCC]     = NULL;
 }
 
 int app_gptmr_register_callback(app_gptmr_ch_t ch, app_gptmr_callback_t cb)
@@ -64,8 +75,13 @@ int app_gptmr_register_callback(app_gptmr_ch_t ch, app_gptmr_callback_t cb)
 
     s_callbacks[ch] = cb;
 
-    uint32_t freq = (ch == APP_GPTMR_CH_VOLTAGE) ? APP_GPTMR_VOLTAGE_FREQ
-                                                   : APP_GPTMR_POWER_FREQ;
+    uint32_t freq;
+    switch (ch) {
+    case APP_GPTMR_CH_VOLTAGE: freq = APP_GPTMR_VOLTAGE_FREQ; break;
+    case APP_GPTMR_CH_POWER:   freq = APP_GPTMR_POWER_FREQ;   break;
+    case APP_GPTMR_CH_LCC:     freq = APP_GPTMR_LCC_FREQ;     break;
+    default:                   return -1;
+    }
 
     intf_gptmr_cfg_t cfg = {
         .mode         = INTF_GPTMR_MODE_TIMER,
