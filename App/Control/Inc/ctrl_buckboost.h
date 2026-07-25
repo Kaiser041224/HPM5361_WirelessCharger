@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* 控制默认值 */
-#define BUCKBOOST_P_TARGET_DEFAULT 50.0f
+#define BUCKBOOST_P_TARGET_DEFAULT 120.0f
 
 #ifdef __cplusplus
 extern "C" {

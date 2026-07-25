@@ -141,12 +141,25 @@ static void lcc_control_loop_isr(void) {
 
     ctrl_lcc_cmd_t lcc_cmd;
     ctrl_lcc_get_cmd(&g_lcc, &lcc_cmd);
+
+    /* 频率变化时才下发：hrpwm_apply_frequency 内部会重算 reload 并用驱动侧
+     * 已保存的占空比/相位重新应用，开销比单纯改占空比/相位大很多。 */
     uint32_t freq_hz = (uint32_t)lcc_cmd.frequency_hz;
     if (freq_hz != s_lcc_last_freq_hz) {
         s_lcc_last_freq_hz = freq_hz;
-        // app_hrpwm_set_frequency(HRPWM_INST_LCC, freq_hz);
-        app_adc_set_pmt_trigger_position(APP_ADC_INST_0, APP_ADC_PMT_POSITION_RATIO_ADC0);
+        app_hrpwm_set_frequency(HRPWM_INST_LCC, freq_hz);
+        /* reload 随频率重算后，之前设置的绝对 CMP 值已失效，需按当前四点
+         * 相位循环所在的位置重新校准，不能固定成某个相位，否则会打断
+         * ctrl_lcc_push_sample 里跨周期推进的相位序列 (0°→90°→180°→270°)。 */
+        app_adc_set_pmt_trigger_position(
+            APP_ADC_INST_0, ctrl_lcc_get_current_trigger_position(&g_lcc));
     }
+
+    /* 占空比/相位每次都下发：手动赋值的可控开环，命令值随时可能被上层改变，
+     * 寄存器写开销很轻，与 buckboost 侧每次 update_current 后立即下发的模式一致。 */
+    app_hrpwm_set_duty(HRPWM_LCC_A, lcc_cmd.duty);
+    app_hrpwm_set_duty(HRPWM_LCC_B, lcc_cmd.duty);
+    app_hrpwm_set_phase(HRPWM_INST_LCC, HRPWM_LCC_A, HRPWM_LCC_B, lcc_cmd.phase_deg);
 }
 
 /* ============================================================================

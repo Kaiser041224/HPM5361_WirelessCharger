@@ -21,7 +21,7 @@
 #define CTRL_LCC_PHASE_SAMPLE_COUNT (4U)
 
 /* LCC 开环默认工作点：频率默认值作为跨层单一来源，消除多处写死不一致 */
-#define CTRL_LCC_FREQ_DEFAULT_HZ   (114514.0f)
+#define CTRL_LCC_FREQ_DEFAULT_HZ   (137258.0f)
 #define CTRL_LCC_FREQ_MIN_HZ       (100000.0f)
 #define CTRL_LCC_FREQ_MAX_HZ       (220000.0f)
 #define CTRL_LCC_DUTY_DEFAULT      (0.5f)
@@ -282,6 +282,17 @@ bool ctrl_lcc_is_pll_locked(const ctrl_lcc_t* ctrl);
 bool ctrl_lcc_is_enabled(const ctrl_lcc_t* ctrl);
 
 int ctrl_lcc_get_phase_samples(const ctrl_lcc_t* ctrl, ctrl_lcc_phase_samples_t* samples);
+
+/**
+ * @brief 获取当前四点相位采样索引对应的 ADC0 触发位置比例。
+ *
+ * 供 Application 层在 PWM0 频率变化(reload 重算)后重新校准触发位置时使用，
+ * 避免误设成固定值打断跨周期四点采样的相位循环。
+ *
+ * @param ctrl 控制器实例指针 (只读)。
+ * @return position_ratio [0.0, 1.0]，ctrl 为 NULL 时返回 0.0。
+ */
+float ctrl_lcc_get_current_trigger_position(const ctrl_lcc_t* ctrl);
 
 #ifdef __cplusplus
 }
