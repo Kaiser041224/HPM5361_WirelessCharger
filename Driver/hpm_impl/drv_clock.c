@@ -1,11 +1,10 @@
-#include "intf_clock.h"
 #include "hpm_clock_drv.h"
+#include "hpm_pcfg_drv.h"
 #include "hpm_pllctlv2_drv.h"
 #include "hpm_sysctl_drv.h"
-#include "hpm_pcfg_drv.h"
+#include "intf_clock.h"
 
-void intf_clock_init(void)
-{
+void intf_clock_init(void) {
     uint32_t cpu0_freq = clock_get_frequency(clock_cpu0);
 
     if (cpu0_freq == PLLCTL_SOC_PLL_REFCLK_FREQ) {
@@ -32,7 +31,7 @@ void intf_clock_init(void)
 
     clock_connect_group_to_cpu(0, 0);
 
-    pcfg_dcdc_set_voltage(HPM_PCFG, 1175);
+    pcfg_dcdc_set_voltage(HPM_PCFG, 1275);
 
     /* Configure PLL0 to 480MHz first */
     pllctlv2_set_postdiv(HPM_PLLCTLV2, pllctlv2_pll0, pllctlv2_clk0, pllctlv2_div_1p0);
@@ -48,29 +47,16 @@ void intf_clock_init(void)
     clock_set_source_divider(clock_mchtmr0, clk_src_osc24m, 1);
 }
 
-uint32_t intf_clock_get_cpu_freq(void)
-{
-    return clock_get_frequency(clock_cpu0);
-}
+uint32_t intf_clock_get_cpu_freq(void) { return clock_get_frequency(clock_cpu0); }
 
-uint32_t intf_clock_get_ahb_freq(void)
-{
-    return clock_get_frequency(clock_ahb);
-}
+uint32_t intf_clock_get_ahb_freq(void) { return clock_get_frequency(clock_ahb); }
 
-uint32_t intf_clock_get_cycle(void)
-{
+uint32_t intf_clock_get_cycle(void) {
     uint32_t value;
     __asm__ volatile("csrr %0, mcycle" : "=r"(value));
     return value;
 }
 
-void intf_clock_delay_ms(uint32_t ms)
-{
-    clock_cpu_delay_ms(ms);
-}
+void intf_clock_delay_ms(uint32_t ms) { clock_cpu_delay_ms(ms); }
 
-void intf_clock_delay_us(uint32_t us)
-{
-    clock_cpu_delay_us(us);
-}
+void intf_clock_delay_us(uint32_t us) { clock_cpu_delay_us(us); }

@@ -16,7 +16,7 @@
  * ============================================================================ */
 
 #define APP_ANALOG_SIGNAL_VOLTAGE_DIVIDER_GAIN ((100.0f + 3.3f) / 3.3f)
-#define APP_ANALOG_SIGNAL_INA240A2_RSENSE_OHM  (0.002f)
+#define APP_ANALOG_SIGNAL_INA240A2_RSENSE_OHM  (0.001f)
 #define APP_ANALOG_SIGNAL_INA240A2_GAIN        (50.0f)
 #define APP_ANALOG_SIGNAL_CURRENT_GAIN_A_PER_V \
     (1.0f / (APP_ANALOG_SIGNAL_INA240A2_RSENSE_OHM * APP_ANALOG_SIGNAL_INA240A2_GAIN))
@@ -61,14 +61,15 @@ typedef struct {
  * Default Configuration
  * ============================================================================ */
 
-ATTR_PLACE_AT_FAST_RAM_INIT static const adc_channel_t s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
-    [APP_ANALOG_SIGNAL_ITEM_V_IN] = ADC_CH_V_IN,
-    [APP_ANALOG_SIGNAL_ITEM_I_IN] = ADC_CH_I_IN,
-    [APP_ANALOG_SIGNAL_ITEM_I_L] = ADC_CH_I_L,
-    [APP_ANALOG_SIGNAL_ITEM_V_LINK] = ADC_CH_V_LINK,
-    [APP_ANALOG_SIGNAL_ITEM_I_COIL] = ADC_CH_I_COIL,
-    [APP_ANALOG_SIGNAL_ITEM_I_LF] = ADC_CH_I_LF,
-};
+ATTR_PLACE_AT_FAST_RAM_INIT static const adc_channel_t
+    s_item_to_channel[APP_ANALOG_SIGNAL_ITEM_COUNT] = {
+        [APP_ANALOG_SIGNAL_ITEM_V_IN] = ADC_CH_V_IN,
+        [APP_ANALOG_SIGNAL_ITEM_I_IN] = ADC_CH_I_IN,
+        [APP_ANALOG_SIGNAL_ITEM_I_L] = ADC_CH_I_L,
+        [APP_ANALOG_SIGNAL_ITEM_V_LINK] = ADC_CH_V_LINK,
+        [APP_ANALOG_SIGNAL_ITEM_I_COIL] = ADC_CH_I_COIL,
+        [APP_ANALOG_SIGNAL_ITEM_I_LF] = ADC_CH_I_LF,
+    };
 
 ATTR_PLACE_AT_FAST_RAM_INIT const app_analog_signal_item_t s_channel_to_item[ADC_CH_COUNT] = {
     [ADC_CH_V_IN] = APP_ANALOG_SIGNAL_ITEM_V_IN,
@@ -171,7 +172,7 @@ static algo_fir_t s_fir_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 static algo_biquad_t s_biquad_filters[APP_ANALOG_SIGNAL_ITEM_COUNT];
 
 ATTR_PLACE_AT_FAST_RAM_BSS static float s_ma_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
-                                [APP_ANALOG_SIGNAL_FILTER_MA_MAX_WINDOW];
+                                                           [APP_ANALOG_SIGNAL_FILTER_MA_MAX_WINDOW];
 static float s_fir_filter_buffers[APP_ANALOG_SIGNAL_ITEM_COUNT]
                                  [APP_ANALOG_SIGNAL_FILTER_FIR_MAX_TAPS];
 

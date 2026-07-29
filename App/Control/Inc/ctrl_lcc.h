@@ -21,7 +21,7 @@
 #define CTRL_LCC_PHASE_SAMPLE_COUNT (4U)
 
 /* LCC 开环默认工作点：频率默认值作为跨层单一来源，消除多处写死不一致 */
-#define CTRL_LCC_FREQ_DEFAULT_HZ   (137258.0f)
+#define CTRL_LCC_FREQ_DEFAULT_HZ   (114514.0f)
 #define CTRL_LCC_FREQ_MIN_HZ       (100000.0f)
 #define CTRL_LCC_FREQ_MAX_HZ       (220000.0f)
 #define CTRL_LCC_DUTY_DEFAULT      (0.5f)
